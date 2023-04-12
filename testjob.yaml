@@ -20,22 +20,18 @@ spec:
             - |
               pip uninstall mani_skill2
               rm -rf ~/ManiSkill2
-              wandb login 44713a60b687b7a3dbe558ae6ef945cbeacb756e
-              cp /cephfs_fast/ssh/* ~/.ssh
-              cp /cephfs_fast/.zshrc ~/.zshrc
+              wandb login 4e2cc88659e965fd46f8cea8dc1c94c875f99e8c
               ssh-keyscan github.com >> ~/.ssh/known_hosts
               source ~/.zshrc
-              cd 
-              ln -s /cephfs_fast/rookie ./
-              git config --global --add safe.directory /root/rookie
-              ln -s /cephfs_fast/ManiSkill2 ./
-              git config --global --add safe.directory /root/ManiSkill2
+              git clone https://github.com/tongzhoumu/ManiSkill2.git
+              git clone https://github.com/stasio6/roboml.git
+              cd
               cd ManiSkill2
               git pull
               cd 
-              cd rookie
+              cd stasio6
               git pull
-              PYTHONPATH=~/ManiSkill2:$PYTHONPATH MS2_ASSET_DIR=/cephfs_fast/ManiSkill2-dev/mani_skill2/assets {command}
+              PYTHONPATH=~/ManiSkill2:$PYTHONPATH {command}
           resources:
             requests:
               cpu: "2"

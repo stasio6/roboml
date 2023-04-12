@@ -44,7 +44,7 @@ def parse_args():
     # Algorithm specific arguments
     parser.add_argument("--env-id", type=str, default="PickCube-v2",
         help="the id of the environment")
-    parser.add_argument("--total-timesteps", type=int, default=2_000_000,
+    parser.add_argument("--total-timesteps", type=int, default=100_000,
         help="total timesteps of the experiments")
     parser.add_argument("--learning-rate", type=float, default=3e-4,
         help="the learning rate of the optimizer")
@@ -67,7 +67,7 @@ def parse_args():
     parser.add_argument("--sync-venv", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
     parser.add_argument("--save-freq", type=int, default=200_000)
     parser.add_argument("--control-mode", type=str, default='pd_ee_delta_pos')
-    parser.add_argument("--expert-ckpt", type=str, default='output/PickCube-v1/SAC-ms2-new/230329-142137_1_profile/checkpoints/600000.pt')
+    parser.add_argument("--expert-ckpt", type=str, default='output/PickCube-v2/SAC-ms2-new/230411-170847_1_SAC/checkpoints/300032.pt')
 
     args = parser.parse_args()
     args.algo_name = ALGO_NAME
@@ -268,7 +268,10 @@ if __name__ == "__main__":
                 # 2. use expert action with probability beta, then decay beta
                 # 3. use agent action (the current implementation)
                 # Stan, you can try these options and see which one works better
-                action = agent.get_action(next_obs)
+                if update == -1:
+                    action = expert.get_eval_action(next_obs).detach()
+                else:
+                    action = agent.get_action(next_obs)
             actions[step] = action
 
             # TRY NOT TO MODIFY: execute the game and log data.
