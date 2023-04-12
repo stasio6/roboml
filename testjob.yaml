@@ -1,0 +1,87 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stan-test
+  namespace: ucsd-haosulab
+spec:
+  ttlSecondsAfterFinished: 86400 # Wait one day to delete completed jobs
+  template:
+    metadata:
+      labels:
+        nautilus.io/rl: "true"
+    spec:
+      containers:
+        - name: gpu-container
+          image: mutongzhou/ms2-rk
+          # imagePullPolicy: Always
+          command:
+            - bash
+            - -c
+            - |
+              pip uninstall mani_skill2
+              rm -rf ~/ManiSkill2
+              wandb login 44713a60b687b7a3dbe558ae6ef945cbeacb756e
+              cp /cephfs_fast/ssh/* ~/.ssh
+              cp /cephfs_fast/.zshrc ~/.zshrc
+              ssh-keyscan github.com >> ~/.ssh/known_hosts
+              source ~/.zshrc
+              cd 
+              ln -s /cephfs_fast/rookie ./
+              git config --global --add safe.directory /root/rookie
+              ln -s /cephfs_fast/ManiSkill2 ./
+              git config --global --add safe.directory /root/ManiSkill2
+              cd ManiSkill2
+              git pull
+              cd 
+              cd rookie
+              git pull
+              PYTHONPATH=~/ManiSkill2:$PYTHONPATH MS2_ASSET_DIR=/cephfs_fast/ManiSkill2-dev/mani_skill2/assets {command}
+          resources:
+            requests:
+              cpu: "2"
+              memory: "2Gi"
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            # - name: cephfs-slow
+            #   mountPath: /cephfs_slow
+            - name: cephfs-fast
+              mountPath: /cephfs_fast
+      volumes:
+        - name: dshm # shared memory, required for the multi-worker dataloader
+          emptyDir:
+            medium: Memory
+        # - name: cephfs-slow
+        #   persistentVolumeClaim:
+        #     claimName: tmu-slow-vol
+        - name: cephfs-fast
+          persistentVolumeClaim:
+            claimName: tmu-fast-vol
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nautilus.io/group
+                    operator: In
+                    values:
+                      - haosu
+                  - key: nvidia.com/gpu.product
+                    operator: In
+                    values:
+                      - NVIDIA-GeForce-RTX-2080-Ti
+              # - matchExpressions:
+              #     - key: nvidia.com/gpu.product
+              #       operator: In
+              #       values:
+              #         - NVIDIA-A10
+              #         - NVIDIA-GeForce-RTX-3090
+              #         # - NVIDIA-RTX-A6000
+              #         # - NVIDIA-A100-SXM4-80GB
+  backoffLimit: 1 # The number of attempts to restart after crash
