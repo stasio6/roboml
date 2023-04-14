@@ -32,7 +32,7 @@ def parse_args():
         help="if toggled, `torch.backends.cudnn.deterministic=False`")
     parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, cuda will be enabled by default")
-    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
     parser.add_argument("--wandb-project-name", type=str, default="roboml",
         help="the wandb's project name")
@@ -44,7 +44,7 @@ def parse_args():
     # Algorithm specific arguments
     parser.add_argument("--env-id", type=str, default="PickCube-v2",
         help="the id of the environment")
-    parser.add_argument("--total-timesteps", type=int, default=100_000,
+    parser.add_argument("--total-timesteps", type=int, default=1_000_000,
         help="total timesteps of the experiments")
     parser.add_argument("--learning-rate", type=float, default=3e-4,
         help="the learning rate of the optimizer")
@@ -56,12 +56,14 @@ def parse_args():
         help="the size of mini-batches")
     parser.add_argument("--num-steps-per-update", type=float, default=1, # should be tuned based on sim time and tranining time
         help="the ratio between env steps and num of gradient updates, lower means more updates")
-    parser.add_argument("--bc-loss-th", type=float, default=0.01, # Stan, you can also set this to None
+    parser.add_argument("--bc-loss-th", type=float, default=None, # Set to None if no threshold wanted
         help="if the bc loss is smaller than this threshold, then stop training and collect new data")
+    parser.add_argument("--mimic-expert", type=str, default="never",
+        help="strategy or following expert's actions instead of agent's [never, always, first, 1/n, 0.9^n]")
 
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=50_000)
-    parser.add_argument("--num-eval-episodes", type=int, default=10)
+    parser.add_argument("--num-eval-episodes", type=int, default=20)
     parser.add_argument("--num-eval-envs", type=int, default=1)
     parser.add_argument("--log-freq", type=int, default=10000)
     parser.add_argument("--sync-venv", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
@@ -250,6 +252,7 @@ if __name__ == "__main__":
     num_updates = int(np.ceil(args.total_timesteps / args.num_steps_per_collect))
     result = defaultdict(list)
     collect_time = training_time = eval_time = 0
+    beta = 1
 
     for update in range(1, num_updates + 1):
         print('== Epoch:', update)
@@ -263,12 +266,20 @@ if __name__ == "__main__":
 
             # ALGO LOGIC: action logic
             with torch.no_grad():
-                # TODO: there are several options
-                # 1. use the expert action at the first epoch, then use the agent action
-                # 2. use expert action with probability beta, then decay beta
-                # 3. use agent action (the current implementation)
-                # Stan, you can try these options and see which one works better
-                if update == -1:
+                if args.mimic_expert == "never":
+                    beta = 0
+                elif args.mimic_expert == "always":
+                    beta = 1
+                elif args.mimic_expert == "1/n":
+                    beta = 1 / update
+                elif args.mimic_expert == "0.9^n":
+                    beta = beta * 0.9
+                elif args.mimic_expert == "first":
+                    beta = 1 if update == 1 else 0
+                else:
+                    raise AttributeError("Mimic expert strategy not supported")
+                
+                if np.random.choice(a=[True, False], p=[beta, 1-beta]):
                     action = expert.get_eval_action(next_obs).detach()
                 else:
                     action = agent.get_action(next_obs)
