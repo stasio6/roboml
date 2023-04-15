@@ -69,7 +69,7 @@ def parse_args():
     parser.add_argument("--sync-venv", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
     parser.add_argument("--save-freq", type=int, default=200_000)
     parser.add_argument("--control-mode", type=str, default='pd_ee_delta_pos')
-    parser.add_argument("--expert-ckpt", type=str, default='output/PickCube-v2/SAC-ms2-new/230411-170847_1_SAC/checkpoints/300032.pt')
+    parser.add_argument("--expert-ckpt", type=str, default=None)
 
     args = parser.parse_args()
     args.algo_name = ALGO_NAME
@@ -221,6 +221,8 @@ if __name__ == "__main__":
 
     # expert setup
     from os.path import dirname as up
+    args.expert_ckpt = 'checkpoints/' + args.env_id + '/checkpoints/' + args.env_id + ".pt"
+    #print(args.ex)
     expert_dir = up(up(args.expert_ckpt))
     import json
     with open(f'{expert_dir}/args.json', 'r') as f:
