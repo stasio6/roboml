@@ -56,6 +56,8 @@ def parse_args():
         help="the size of mini-batches")
     parser.add_argument("--num-steps-per-update", type=float, default=1, # should be tuned based on sim time and tranining time
         help="the ratio between env steps and num of gradient updates, lower means more updates")
+    parser.add_argument("--num-bc-epochs", type=int, default=None, # should be tuned based on sim time and tranining time
+        help="the number of bc epochs, lower means faster but maybe less successful learning")
     parser.add_argument("--bc-loss-th", type=float, default=None, # Set to None if no threshold wanted
         help="if the bc loss is smaller than this threshold, then stop training and collect new data")
     parser.add_argument("--mimic-expert", type=str, default="never",
@@ -81,6 +83,8 @@ def parse_args():
     args.num_updates_per_collect = int(args.num_steps_per_collect / args.num_steps_per_update)
     assert args.num_updates_per_collect % args.num_minibatches == 0
     args.update_epochs = int(args.num_updates_per_collect // args.num_minibatches)
+    if args.num_bc_epochs:
+        args.update_epochs = args.num_bc_epochs
     args.num_eval_envs = min(args.num_eval_envs, args.num_eval_episodes)
     assert args.num_eval_episodes % args.num_eval_envs == 0
     # fmt: on
