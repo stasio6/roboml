@@ -326,9 +326,9 @@ if __name__ == "__main__":
 
         # Optimizing the policy and value network
         agent.train()
-        data = rb.sample(args.bc_dataset_size)
-        b_expert_actions = expert.get_eval_action(data.observations.float()).detach()
         for epoch in range(args.update_epochs):
+            data = rb.sample(args.bc_dataset_size)
+            b_expert_actions = expert.get_eval_action(data.observations.float()).detach()
             mean_loss = 0.0
             for start in range(0, args.num_steps_per_collect, args.minibatch_size):
                 end = start + args.minibatch_size
