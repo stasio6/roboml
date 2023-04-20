@@ -54,7 +54,7 @@ def parse_args():
         help="the learning rate of the optimizer")
     parser.add_argument("--num-envs", type=int, default=16,
         help="the number of parallel game environments")
-    parser.add_argument("--num-steps-per-collect", type=int, default=4000, # this hp is pretty important
+    parser.add_argument("--num-steps-per-collect", type=int, default=8000, # this hp is pretty important
         help="the number of steps to run in all environment in total per policy rollout")
     parser.add_argument("--minibatch-size", type=int, default=2000,
         help="the size of mini-batches")
@@ -62,7 +62,7 @@ def parse_args():
         help="the ratio between env steps and num of gradient updates, lower means more updates")
     parser.add_argument("--num-bc-epochs", type=int, default=None, # should be tuned based on sim time and tranining time
         help="the number of bc epochs, lower means faster but maybe less successful learning")
-    parser.add_argument("--bc-dataset-size", type=int, default=10000,
+    parser.add_argument("--bc-batch-size", type=int, default=10000,
         help="the number of actions used in bc, lower means faster learning but more overfitting")
     parser.add_argument("--bc-loss-th", type=float, default=0.01, # Set to 0 if no threshold wanted
         help="if the bc loss is smaller than this threshold, then stop training and collect new data")
@@ -327,7 +327,7 @@ if __name__ == "__main__":
         # Optimizing the policy and value network
         agent.train()
         for epoch in range(args.update_epochs):
-            data = rb.sample(args.bc_dataset_size)
+            data = rb.sample(args.bc_batch_size)
             b_expert_actions = expert.get_eval_action(data.observations.float()).detach()
             mean_loss = 0.0
             for start in range(0, args.num_steps_per_collect, args.minibatch_size):
