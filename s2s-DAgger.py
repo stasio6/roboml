@@ -15,6 +15,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 
 import datetime
@@ -34,7 +35,7 @@ def parse_args():
         help="if toggled, cuda will be enabled by default")
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
-    parser.add_argument("--wandb-project-name", type=str, default="s2s-verify",
+    parser.add_argument("--wandb-project-name", type=str, default="s2s-rb",
         help="the wandb's project name")
     parser.add_argument("--wandb-entity", type=str, default=None,
         help="the entity (team) of wandb's project")
@@ -46,6 +47,8 @@ def parse_args():
         help="the id of the environment")
     parser.add_argument("--total-timesteps", type=int, default=1_000_000,
         help="total timesteps of the experiments")
+    parser.add_argument("--buffer-size", type=int, default=10000,
+        help="the replay memory buffer size")
     parser.add_argument("--learning-rate", type=float, default=3e-4,
         help="the learning rate of the optimizer")
     parser.add_argument("--num-envs", type=int, default=16,
@@ -58,7 +61,9 @@ def parse_args():
         help="the ratio between env steps and num of gradient updates, lower means more updates")
     parser.add_argument("--num-bc-epochs", type=int, default=None, # should be tuned based on sim time and tranining time
         help="the number of bc epochs, lower means faster but maybe less successful learning")
-    parser.add_argument("--bc-loss-th", type=float, default=None, # Set to None if no threshold wanted
+    parser.add_argument("--bc-dataset-size", type=int, default=10000,
+        help="the number of actions used in bc, lower means faster learning but more overfitting")
+    parser.add_argument("--bc-loss-th", type=float, default=0.01, # Set to 0 if no threshold wanted
         help="if the bc loss is smaller than this threshold, then stop training and collect new data")
     parser.add_argument("--mimic-expert", type=str, default="never",
         help="strategy or following expert's actions instead of agent's [never, always, first, 1/n, 0.9^n]")
@@ -249,6 +254,14 @@ if __name__ == "__main__":
     actions = torch.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape).to(device)
     rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
+    rb = ReplayBuffer(
+        args.buffer_size,
+        envs.single_observation_space,
+        envs.single_action_space,
+        device,
+        n_envs=args.num_envs,
+        handle_timeout_termination=True,
+    )
 
     # TRY NOT TO MODIFY: start the game
     start_time = time.time()
@@ -292,33 +305,36 @@ if __name__ == "__main__":
             actions[step] = action
 
             # TRY NOT TO MODIFY: execute the game and log data.
+            prev_obs = next_obs
             next_obs, reward, done, info = envs.step(action.cpu().numpy())
+            real_next_obs = next_obs.copy()
             rewards[step] = torch.tensor(reward).to(device).view(-1)
 
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(done).to(device)
+
+            # TRY NOT TO MODIFY: save data to reply buffer; handle `terminal_observation`
+            for idx, d in enumerate(done):
+                if d:
+                    real_next_obs[idx] = info[idx]["terminal_observation"]
+            rb.add(prev_obs.cpu(), real_next_obs, action.cpu(), reward, done, info)
 
             result = collect_episode_info(info, result)
         collect_time += time.time() - tic
 
         tic = time.time()
 
-        # flatten the batch
-        b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
-        b_expert_actions = expert.get_eval_action(b_obs).detach()
-
         # Optimizing the policy and value network
         agent.train()
-        b_inds = np.arange(args.num_steps_per_collect)
+        data = rb.sample(args.bc_dataset_size)
+        b_expert_actions = expert.get_eval_action(data.observations).detach()
         for epoch in range(args.update_epochs):
             mean_loss = 0.0
-            np.random.shuffle(b_inds)
             for start in range(0, args.num_steps_per_collect, args.minibatch_size):
                 end = start + args.minibatch_size
-                mb_inds = b_inds[start:end]
 
                 # Behavior Cloning
-                pred_actions = agent.get_action(b_obs[mb_inds])
-                loss = F.mse_loss(pred_actions, b_expert_actions[mb_inds])
+                pred_actions = agent.get_action(data.observations[start:end])
+                loss = F.mse_loss(pred_actions, b_expert_actions[start:end])
 
                 optimizer.zero_grad()
                 loss.backward()
