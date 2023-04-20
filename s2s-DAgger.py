@@ -12,6 +12,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 import gym
 import numpy as np
 import torch
+from copy import copy
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
@@ -305,7 +306,7 @@ if __name__ == "__main__":
             actions[step] = action
 
             # TRY NOT TO MODIFY: execute the game and log data.
-            prev_obs = next_obs
+            prev_obs = copy(next_obs)
             next_obs, reward, done, info = envs.step(action.cpu().numpy())
             real_next_obs = next_obs.copy()
             rewards[step] = torch.tensor(reward).to(device).view(-1)
@@ -326,14 +327,14 @@ if __name__ == "__main__":
         # Optimizing the policy and value network
         agent.train()
         data = rb.sample(args.bc_dataset_size)
-        b_expert_actions = expert.get_eval_action(data.observations).detach()
+        b_expert_actions = expert.get_eval_action(data.observations.float()).detach()
         for epoch in range(args.update_epochs):
             mean_loss = 0.0
             for start in range(0, args.num_steps_per_collect, args.minibatch_size):
                 end = start + args.minibatch_size
 
                 # Behavior Cloning
-                pred_actions = agent.get_action(data.observations[start:end])
+                pred_actions = agent.get_action(data.observations[start:end].float())
                 loss = F.mse_loss(pred_actions, b_expert_actions[start:end])
 
                 optimizer.zero_grad()
@@ -342,9 +343,6 @@ if __name__ == "__main__":
                 mean_loss += loss.item()
             mean_loss /= (args.num_steps_per_collect // args.minibatch_size)
             print('epoch:', epoch, 'loss:', mean_loss)
-            # TODO: Stan, please try and see which option works better
-            # 1. set a threshold on the loss, if the loss is below the threshold, stop training
-            # 2. train fixed number of epochs
             if args.bc_loss_th is not None and mean_loss < args.bc_loss_th:
                 break
 
