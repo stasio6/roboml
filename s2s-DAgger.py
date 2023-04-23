@@ -48,7 +48,7 @@ def parse_args():
         help="the id of the environment")
     parser.add_argument("--total-timesteps", type=int, default=1_000_000,
         help="total timesteps of the experiments")
-    parser.add_argument("--buffer-size", type=int, default=10000,
+    parser.add_argument("--buffer-size", type=int, default=300000,
         help="the replay memory buffer size")
     parser.add_argument("--learning-rate", type=float, default=3e-4,
         help="the learning rate of the optimizer")
@@ -56,11 +56,9 @@ def parse_args():
         help="the number of parallel game environments")
     parser.add_argument("--num-steps-per-collect", type=int, default=8000, # this hp is pretty important
         help="the number of steps to run in all environment in total per policy rollout")
-    parser.add_argument("--minibatch-size", type=int, default=2000,
-        help="the size of mini-batches")
     parser.add_argument("--num-steps-per-update", type=float, default=1, # should be tuned based on sim time and tranining time
         help="the ratio between env steps and num of gradient updates, lower means more updates")
-    parser.add_argument("--num-bc-epochs", type=int, default=None, # should be tuned based on sim time and tranining time
+    parser.add_argument("--num-bc-epochs", type=int, default=5000, # should be tuned based on sim time and tranining time
         help="the number of bc epochs, lower means faster but maybe less successful learning")
     parser.add_argument("--bc-batch-size", type=int, default=10000,
         help="the number of actions used in bc, lower means faster learning but more overfitting")
@@ -84,13 +82,6 @@ def parse_args():
     args.script = __file__
     assert args.num_steps_per_collect % args.num_envs == 0
     args.num_steps = int(args.num_steps_per_collect // args.num_envs)
-    assert args.num_steps_per_collect % args.minibatch_size == 0
-    args.num_minibatches = int(args.num_steps_per_collect // args.minibatch_size)
-    args.num_updates_per_collect = int(args.num_steps_per_collect / args.num_steps_per_update)
-    assert args.num_updates_per_collect % args.num_minibatches == 0
-    args.update_epochs = int(args.num_updates_per_collect // args.num_minibatches)
-    if args.num_bc_epochs:
-        args.update_epochs = args.num_bc_epochs
     args.num_eval_envs = min(args.num_eval_envs, args.num_eval_episodes)
     assert args.num_eval_episodes % args.num_eval_envs == 0
     # fmt: on
@@ -326,22 +317,18 @@ if __name__ == "__main__":
 
         # Optimizing the policy and value network
         agent.train()
-        for epoch in range(args.update_epochs):
+        for epoch in range(args.num_bc_epochs):
             data = rb.sample(args.bc_batch_size)
             b_expert_actions = expert.get_eval_action(data.observations.float()).detach()
-            mean_loss = 0.0
-            for start in range(0, args.num_steps_per_collect, args.minibatch_size):
-                end = start + args.minibatch_size
 
-                # Behavior Cloning
-                pred_actions = agent.get_action(data.observations[start:end].float())
-                loss = F.mse_loss(pred_actions, b_expert_actions[start:end])
+            # Behavior Cloning
+            pred_actions = agent.get_action(data.observations.float())
+            loss = F.mse_loss(pred_actions, b_expert_actions)
 
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                mean_loss += loss.item()
-            mean_loss /= (args.num_steps_per_collect // args.minibatch_size)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            mean_loss = loss.item() / args.bc_batch_size
             print('epoch:', epoch, 'loss:', mean_loss)
             if args.bc_loss_th is not None and mean_loss < args.bc_loss_th:
                 break

@@ -1,8 +1,5 @@
 ALGO_NAME = 'BC_state'
 
-import sys
-sys.path = ['/home/tmu/ManiSkill2-dev/'] + sys.path
-
 import argparse
 import os
 import random
@@ -51,24 +48,25 @@ def parse_args():
     # Algorithm specific arguments
     parser.add_argument("--env-id", type=str, default="PickCube-v1",
         help="the id of the environment")
-    parser.add_argument("--demo-path", type=str, default='output/PickCube-v1/SAC/220926-173724_1_old-reward/evaluation/600000/trajectories_1000.pkl',
+    parser.add_argument("--demo-path", type=str, default='checkpoints/PickSingleYCB-v1/evaluation/PickSingleYCB-v1/PickSingleYCB-v1_trajectories_100.pkl',
         help="the path of demo pkl")
     parser.add_argument("--num-demo-traj", type=int, default=None)
-    parser.add_argument("--total-iters", type=int, default=1_000_000,
+    parser.add_argument("--total-iters", type=int, default=100_000,
         help="total timesteps of the experiments")
     parser.add_argument("--lr", type=float, default=3e-4,
         help="the learning rate of the agent")
     parser.add_argument("--batch-size", type=int, default=256,
-        help="the batch size of sample from the reply memory")
+        help="the batch size of sample from the replay memory")
 
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--log-freq", type=int, default=2000)
-    parser.add_argument("--eval-freq", type=int, default=20_000)
-    parser.add_argument("--num-eval-episodes", type=int, default=10)
-    parser.add_argument("--num-eval-envs", type=int, default=2)
+    parser.add_argument("--eval-freq", type=int, default=5000)
+    parser.add_argument("--save-freq", type=int, default=20000)
+    parser.add_argument("--num-eval-episodes", type=int, default=20)
+    parser.add_argument("--num-eval-envs", type=int, default=4)
     parser.add_argument("--sync-venv", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
     parser.add_argument("--num-dataload-workers", type=int, default=0)
-    parser.add_argument("--control-mode", type=str, default=None)
+    parser.add_argument("--control-mode", type=str, default='pd_ee_delta_pos')
 
     args = parser.parse_args()
     args.algo_name = ALGO_NAME
@@ -84,11 +82,12 @@ def parse_args():
 import mani_skill2.envs
 from mani_skill2.utils.wrappers import RecordEpisode
 
-def make_env(env_id, seed, control_mode=None, video_dir=None, video_trigger=None):
+def make_env(env_id, seed, control_mode=None, video_dir=None):
     def thunk():
-        env = gym.make(env_id, reward_mode='sparse', obs_mode='state', control_mode=control_mode)
+        env = gym.make(env_id, reward_mode='dense', obs_mode='state', control_mode=control_mode)
         if video_dir:
             env = RecordEpisode(env, output_dir=video_dir, save_trajectory=False, info_on_video=True)
+            # env = RecordEpisode(env, output_dir=video_dir, save_trajectory=False, info_on_video=False)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.ClipAction(env)
 
@@ -159,6 +158,11 @@ def evaluate(n, agent, eval_envs, device):
     print('======= Evaluation Ends =========')
     return result
 
+def save_ckpt(tag):
+    os.makedirs(f'{log_path}/checkpoints', exist_ok=True)
+    torch.save({
+        'agent': agent.state_dict(),
+    }, f'{log_path}/checkpoints/{tag}.pt')
 
 if __name__ == "__main__":
     args = parse_args()
@@ -200,11 +204,12 @@ if __name__ == "__main__":
 
     # env setup
     VecEnv = gym.vector.SyncVectorEnv if args.sync_venv else gym.vector.AsyncVectorEnv
+    kwargs = {} if args.sync_venv else {'context': 'forkserver'}
     eval_envs = VecEnv(
-        [make_env(args.env_id, args.seed + i, args.control_mode,
-                f'{log_path}/videos' if args.capture_video and i == 0 else None, 
-                lambda x: x % (args.num_eval_episodes // args.num_eval_envs) == 0 ) 
-        for i in range(args.num_eval_envs)]
+        [make_env(args.env_id, args.seed + 1000 + i, args.control_mode,
+                f'{log_path}/videos' if args.capture_video and i == 0 else None) 
+        for i in range(args.num_eval_envs)],
+        **kwargs,
     )
     envs = eval_envs
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
@@ -232,6 +237,7 @@ if __name__ == "__main__":
     # Training begins.
     # ---------------------------------------------------------------------------- #
     loss_fn = F.mse_loss
+    best_success_rate = -1
 
     tic = time.time()
 
@@ -266,18 +272,17 @@ if __name__ == "__main__":
             result = evaluate(args.num_eval_episodes, agent, eval_envs, device)
             for k, v in result.items():
                 writer.add_scalar(f"eval/{k}", np.mean(v), cur_iter)
+            sr = np.mean(result['success'])
+            if sr > best_success_rate:
+                best_success_rate = sr
+                save_ckpt('best_eval_success_rate')
+                print(f'### Update best success rate: {sr:.4f}')
 
 
 
-        # # ---------------------------------------------------------------------------- #
-        # # After validation
-        # # ---------------------------------------------------------------------------- #
-        # # checkpoint
-        # if (ckpt_period > 0 and cur_iter % ckpt_period == 0) or cur_iter == max_iter:
-        #     checkpoint_data['iteration'] = cur_iter
-        #     if do_validation and best_metric is not None:
-        #         checkpoint_data[best_metric_name] = best_metric
-        #     checkpointer.save('model_{:06d}'.format(cur_iter), **checkpoint_data)
+        # Checkpoint
+        if args.save_freq and cur_iter % args.save_freq == 0:
+            save_ckpt(str(cur_iter))
 
         tic = time.time()
 
