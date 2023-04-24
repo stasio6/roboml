@@ -328,7 +328,7 @@ if __name__ == "__main__":
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            mean_loss = loss.item() / args.bc_batch_size
+            mean_loss = loss.item()
             print('epoch:', epoch, 'loss:', mean_loss)
             if args.bc_loss_th is not None and mean_loss < args.bc_loss_th:
                 break
