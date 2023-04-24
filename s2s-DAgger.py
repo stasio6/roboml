@@ -60,7 +60,7 @@ def parse_args():
         help="the ratio between env steps and num of gradient updates, lower means more updates")
     parser.add_argument("--num-bc-epochs", type=int, default=5000, # should be tuned based on sim time and tranining time
         help="the number of bc epochs, lower means faster but maybe less successful learning")
-    parser.add_argument("--bc-batch-size", type=int, default=10000,
+    parser.add_argument("--bc-batch-size", type=int, default=2000,
         help="the number of actions used in bc, lower means faster learning but more overfitting")
     parser.add_argument("--bc-loss-th", type=float, default=0.01, # Set to 0 if no threshold wanted
         help="if the bc loss is smaller than this threshold, then stop training and collect new data")
