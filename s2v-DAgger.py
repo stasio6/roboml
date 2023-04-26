@@ -627,10 +627,12 @@ if __name__ == "__main__":
             if args.bc_loss_th is not None and mean_loss < args.bc_loss_th:
                 break
 
+        print("out")
         training_time += time.time() - tic
 
         # Log
         if (global_step - args.num_steps_per_collect) // args.log_freq < global_step // args.log_freq:
+            print("logtime")
             if len(result['return']) > 0:
                 for k, v in result.items():
                     writer.add_scalar(f"train/{k}", np.mean(v), global_step)
@@ -649,6 +651,7 @@ if __name__ == "__main__":
 
         # Evaluation
         if (global_step - args.num_steps_per_collect) // args.eval_freq < global_step // args.eval_freq:
+            print("evaltime")
             tic = time.time()
             result = evaluate(args.num_eval_episodes, agent, eval_envs, device)
             eval_time += time.time() - tic
@@ -658,6 +661,7 @@ if __name__ == "__main__":
         # Checkpoint
         if args.save_freq and ( update == num_updates or \
                 (global_step - args.num_steps_per_collect) // args.save_freq < global_step // args.save_freq):
+            print("checkpointtime")
             os.makedirs(f'{log_path}/checkpoints', exist_ok=True)
             torch.save({
                 'agent': agent.state_dict(),
