@@ -501,8 +501,8 @@ if __name__ == "__main__":
     envs = make_vec_env(args.env_id, args.num_envs, args.seed, args.control_mode, args.image_size)
     # if args.rew_norm:
     #     envs = gym.wrappers.NormalizeReward(envs, args.gamma)
-    eval_envs = make_vec_env(args.env_id, args.num_eval_envs, args.seed+1000, args.control_mode, args.image_size,
-                             video_dir=f'{log_path}/videos' if args.capture_video else None)
+    # eval_envs = make_vec_env(args.env_id, args.num_eval_envs, args.seed+1000, args.control_mode, args.image_size,
+    #                          video_dir=f'{log_path}/videos' if args.capture_video else None)
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
     print(envs.single_action_space)
     print(envs.single_observation_space)
@@ -648,12 +648,12 @@ if __name__ == "__main__":
             writer.add_scalar("charts/training_SPS", int(global_step / training_time), global_step)
 
         # Evaluation
-        if (global_step - args.num_steps_per_collect) // args.eval_freq < global_step // args.eval_freq:
-            tic = time.time()
-            result = evaluate(args.num_eval_episodes, agent, eval_envs, device)
-            eval_time += time.time() - tic
-            for k, v in result.items():
-                writer.add_scalar(f"eval/{k}", np.mean(v), global_step)
+        # if (global_step - args.num_steps_per_collect) // args.eval_freq < global_step // args.eval_freq:
+        #     tic = time.time()
+        #     result = evaluate(args.num_eval_episodes, agent, eval_envs, device)
+        #     eval_time += time.time() - tic
+        #     for k, v in result.items():
+        #         writer.add_scalar(f"eval/{k}", np.mean(v), global_step)
         
         # Checkpoint
         if args.save_freq and ( update == num_updates or \
