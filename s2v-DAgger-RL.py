@@ -143,7 +143,7 @@ class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
         return self.convert_obs(obs, self.concat_fn)
     
     @staticmethod
-    def build_obs_space(env):
+    def build_obs_space(env, depth_dtype=np.float16):
         obs_space = env.observation_space
         state_dim = 0
         for k in ['agent', 'extra']:
@@ -156,22 +156,20 @@ class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
             'state': spaces.Box(-float("inf"), float("inf"), shape=(state_dim,), dtype=np.float32),
             'image': spaces.Dict({
                 'rgb': spaces.Box(0, 255, shape=(h,w,k*3), dtype=np.uint8),
-                'depth': spaces.Box(-float("inf"), float("inf"), shape=(h,w,k), dtype=np.float16),
+                'depth': spaces.Box(-float("inf"), float("inf"), shape=(h,w,k), dtype=depth_dtype),
             })
         })
+    # NOTE: We have to use float32 for gym AsyncVecEnv since it does not support float16, but we can use float16 for MS2 vec env
     
     @staticmethod
     def convert_obs(obs, concat_fn):
         img_dict = obs['image']
-        new_imgage_dict = {
+        new_img_dict = {
             key: concat_fn([v[key] for v in img_dict.values()])
             for key in ['rgb', 'depth']
         }
-        depth = new_imgage_dict['depth']
-        if not isinstance(depth, np.ndarray):
-            new_imgage_dict['depth'] = depth.to(torch.float16)
-        else:
-            new_imgage_dict['depth'] = depth.astype(np.float16)
+        if isinstance(new_img_dict['depth'], torch.Tensor): # MS2 vec env uses float16, but gym AsyncVecEnv uses float32
+            new_img_dict['depth'] = new_img_dict['depth'].to(torch.float16)
 
         state = np.hstack([
             flatten_state_dict(obs["agent"]),
@@ -179,7 +177,7 @@ class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
         ])
 
         out_dict = {
-            'image': new_imgage_dict,
+            'image': new_img_dict,
             'state': state,
         }
         return out_dict
@@ -188,7 +186,7 @@ class MS2_RGBDObsWrapper(ObservationWrapper):
     def __init__(self, env):
         super().__init__(env)
         assert self.obs_mode == 'rgbd'
-        self.observation_space = MS2_RGBDVecEnvObsWrapper.build_obs_space(env)
+        self.observation_space = MS2_RGBDVecEnvObsWrapper.build_obs_space(env, depth_dtype=np.float32)
         self.concat_fn = partial(np.concatenate, axis=-1)
 
     def observation(self, obs):
@@ -222,24 +220,31 @@ class GetStateObsWrapper(Wrapper):
         raw_env._obs_mode = original_obs_mode
         return state_obs
 
-def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, video_dir=None):
+def seed_env(env, seed):
+    env.seed(seed)
+    env.action_space.seed(seed)
+    env.observation_space.seed(seed)
+
+def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, video_dir=None, gym_vec_env=False):
+    assert gym_vec_env or video_dir is None, 'Saving video is only supported for gym vec env'
     cam_cfg = {'width': image_size, 'height': image_size} if image_size else None
     wrappers = [
         gym.wrappers.RecordEpisodeStatistics,
         gym.wrappers.ClipAction,
     ]
-    if video_dir:
-        assert num_envs == 1, "Cannot capture video with multiple envs."
-        wrappers += [
-            partial(RecordEpisode, output_dir=video_dir, save_trajectory=False, info_on_video=True),
-            MS2_RGBDObsWrapper,
-        ]
-        # RecordEpisode is not compatible with MS2 vec env, so we have to use the normal env
-        def make_env_fn():
-            env = gym.make(env_id, reward_mode='dense', obs_mode='rgbd', control_mode=control_mode, camera_cfgs=cam_cfg)
-            for wrapper in wrappers: env = wrapper(env)
-            return env
-        envs = gym.vector.SyncVectorEnv([make_env_fn])
+    if gym_vec_env:
+        if video_dir:
+            wrappers.append(partial(RecordEpisode, output_dir=video_dir, save_trajectory=False, info_on_video=True))
+        wrappers.append(MS2_RGBDObsWrapper)
+        def make_single_env(_seed):
+            def thunk():
+                env = gym.make(env_id, reward_mode='dense', obs_mode='rgbd', control_mode=control_mode, camera_cfgs=cam_cfg)
+                for wrapper in wrappers: env = wrapper(env)
+                seed_env(env, _seed)
+                return env
+            return thunk
+        # must use AsyncVectorEnv, so that the renderers will be in different processes
+        envs = gym.vector.AsyncVectorEnv([make_single_env(seed + i) for i in range(num_envs)], context='forkserver')
     else:
         wrappers.append(GetStateObsWrapper)
         envs = mani_skill2.vector.make(
@@ -250,23 +255,13 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
         envs = AutoResetVecEnvWrapper(envs) # must be outside of ObsWrapper, otherwise info['terminal_obs'] will be raw obs
         envs.single_action_space = envs.action_space
         envs.single_observation_space = envs.observation_space
-
-    envs.seed(seed)
-    envs.action_space.seed(seed)
-    envs.observation_space.seed(seed)
-    envs.single_action_space.seed(seed)
-    envs.single_observation_space.seed(seed)
+        seed_env(envs, seed)
 
     return envs
 
 def get_state_obs(envs):
     return np.vstack(envs.env_method('get_state_mode_obs'))
 
-
-def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
-    torch.nn.init.orthogonal_(layer.weight, std)
-    torch.nn.init.constant_(layer.bias, bias_const)
-    return layer
 
 def make_mlp(in_channels, mlp_channels, act_builder=nn.ReLU, last_act=True):
     c_in = in_channels
@@ -550,11 +545,12 @@ if __name__ == "__main__":
             "Consider raise num_steps_per_collect or lower num_envs. Continue?\033[0m")
         aaa = input()
     del tmp_env
+    # We need to create eval_envs (w/ AsyncVecEnv) first, since it will fork the main process, and we want to avoid 2 renderers in the same process.
+    eval_envs = make_vec_env(args.env_id, args.num_eval_envs, args.seed+1000, args.control_mode, args.image_size,
+                             video_dir=f'{log_path}/videos' if args.capture_video else None, gym_vec_env=True)
     envs = make_vec_env(args.env_id, args.num_envs, args.seed, args.control_mode, args.image_size)
     if args.rew_norm:
         envs = gym.wrappers.NormalizeReward(envs, args.gamma)
-    # eval_envs = make_vec_env(args.env_id, args.num_eval_envs, args.seed+1000, args.control_mode, args.image_size,
-    #                     video_dir=f'{log_path}/videos' if args.capture_video else None)
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
     print(envs.single_action_space)
     print(envs.single_observation_space)
@@ -822,13 +818,13 @@ if __name__ == "__main__":
             writer.add_scalar("charts/collect_SPS", int(global_step / collect_time), global_step)
             writer.add_scalar("charts/training_SPS", int(global_step / training_time), global_step)
 
-        # # Evaluation
-        # if (global_step - args.num_steps_per_collect) // args.eval_freq < global_step // args.eval_freq:
-        #     tic = time.time()
-        #     result = evaluate(args.num_eval_episodes, agent, eval_envs, device)
-        #     eval_time += time.time() - tic
-        #     for k, v in result.items():
-        #         writer.add_scalar(f"eval/{k}", np.mean(v), global_step)
+        # Evaluation
+        if (global_step - args.num_steps_per_collect) // args.eval_freq < global_step // args.eval_freq:
+            tic = time.time()
+            result = evaluate(args.num_eval_episodes, agent, eval_envs, device)
+            eval_time += time.time() - tic
+            for k, v in result.items():
+                writer.add_scalar(f"eval/{k}", np.mean(v), global_step)
         
         # Checkpoint
         if args.save_freq and ( update == num_updates or \
