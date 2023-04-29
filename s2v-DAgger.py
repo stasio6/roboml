@@ -57,7 +57,7 @@ def parse_args():
         help="the number of steps to run in all environment in total per policy rollout")
     parser.add_argument("--minibatch-size", type=int, default=50,
         help="the size of mini-batches")
-    parser.add_argument("--num-steps-per-update", type=float, default=2, # should be tuned based on sim time and tranining time
+    parser.add_argument("--num-steps-per-update", type=float, default=2, # should be tuned based on sim time and training time
         help="the ratio between env steps and num of gradient updates, lower means more updates")
     parser.add_argument("--bc-loss-th", type=float, default=0.01, # important for training time
         help="if the bc loss is smaller than this threshold, then stop training and collect new data")
