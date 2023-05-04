@@ -775,7 +775,7 @@ if __name__ == "__main__":
                 optimizer.step()
                 mean_imitation_loss += imitation_loss.item()
                 i_update_in_epoch += 1
-            mean_imitation_loss /= i_update_in_epoch
+            mean_imitation_loss /= max(i_update_in_epoch, 1)
             print('epoch:', epoch, 'imitation_loss:', mean_imitation_loss)
             if args.imitation_loss_th is not None and mean_imitation_loss < args.imitation_loss_th:
                 print('break due to small imiation loss')
