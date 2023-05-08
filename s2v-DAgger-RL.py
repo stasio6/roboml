@@ -90,9 +90,11 @@ def parse_args():
         help="the decay rate of lambda in DAPG")
     parser.add_argument("--min-lam", type=float, default=0, # Might help the model not explode
         help="the minimum value of lambda")
+    parser.add_argument("--q-filter-coef", type=float, default=1, # How much q-filter discounts (-1 for dynamic discount)
+        help="the minimum value of lambda")
     parser.add_argument("--warmup-steps", type=float, default=0,
         help="number of steps when only imitation loss is used")
-    parser.add_argument("--imitation-loss", type=str, default='NLL', choices=['NLL', 'MSE'], # TODO: tune this, different losses may need different scales of lambda, pls also try NONE; Suggestions from Zhan: when action range is [-1, 1], MSE is slightly better
+    parser.add_argument("--imitation-loss", type=str, default='MSE', choices=['NLL', 'MSE'], # TODO: tune this, different losses may need different scales of lambda, pls also try NONE; Suggestions from Zhan: when action range is [-1, 1], MSE is slightly better
         help="the type of imitation loss, DAPG uses NLL by default, BC uses MSE")
     # NOTE (important): If you use MSE loss, please use eval/suceess_rate as the metric, because MSE loss will not optimize the action std, resulting in low training success rates 
     parser.add_argument("--imitation-loss-th", type=float, default=np.log(0.01), # TODO: MSE loss is positve, NLL loss can be negative, should be tuned seperately!!
@@ -759,6 +761,10 @@ if __name__ == "__main__":
                 entropy_loss = entropy.mean()
                 rl_loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
 
+                warmup = 0
+                if global_step <= args.warmup_steps:
+                    warmup = 1
+
                 # Imitation loss
                 imitation_data = dagger_buf.sample(args.imitation_batch_size) # TODO: try different batch sizes for RL and imitation
                 imitation_obs = to_tensor(imitation_data['observations'], device)
@@ -768,12 +774,17 @@ if __name__ == "__main__":
                     imitation_loss = -pred_logp.mean()
                 else:
                     pred_actions = agent.get_eval_action(imitation_obs)
-                    imitation_loss = F.mse_loss(pred_actions, imitation_expert_actions)
+                    # Q-filter
+                    _, _, _, agent_vals = agent.get_action_and_value(imitation_obs, pred_actions)
+                    _, _, _, expert_vals = agent.get_action_and_value(imitation_obs, imitation_expert_actions)
+                    if warmup == 1:
+                        discount_coef = 1
+                    else:
+                        discount_coef = args.q_filter_coef if args.q_filter_coef != -1 else dapg_lam
+                    q_filter = torch.tensor([discount_coef if agent_val > expert_val else 1 for (agent_val, expert_val) in zip(agent_vals, expert_vals)])
+                    imitation_loss = torch.mean((pred_actions - imitation_expert_actions)**2 * discount_coef)
+                    # imitation_loss = F.mse_loss(pred_actions, imitation_expert_actions)
                 scaled_imitation_loss = imitation_loss * dapg_lam
-
-                warmup = 0
-                if global_step <= args.warmup_steps:
-                    warmup = 1
                 total_loss = rl_loss * (1-warmup) + scaled_imitation_loss
 
                 optimizer.zero_grad()
