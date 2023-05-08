@@ -94,7 +94,7 @@ def parse_args():
         help="the minimum value of lambda")
     parser.add_argument("--warmup-steps", type=float, default=0,
         help="number of steps when only imitation loss is used")
-    parser.add_argument("--imitation-loss", type=str, default='MSE', choices=['NLL', 'MSE'], # TODO: tune this, different losses may need different scales of lambda, pls also try NONE; Suggestions from Zhan: when action range is [-1, 1], MSE is slightly better
+    parser.add_argument("--imitation-loss", type=str, default='NLL', choices=['NLL', 'MSE'], # TODO: tune this, different losses may need different scales of lambda, pls also try NONE; Suggestions from Zhan: when action range is [-1, 1], MSE is slightly better
         help="the type of imitation loss, DAPG uses NLL by default, BC uses MSE")
     # NOTE (important): If you use MSE loss, please use eval/suceess_rate as the metric, because MSE loss will not optimize the action std, resulting in low training success rates 
     parser.add_argument("--imitation-loss-th", type=float, default=np.log(0.01), # TODO: MSE loss is positve, NLL loss can be negative, should be tuned seperately!!
@@ -771,7 +771,16 @@ if __name__ == "__main__":
                 imitation_expert_actions = imitation_data['expert_actions'].to(device)
                 if args.imitation_loss == 'NLL':
                     pred_logp = agent.get_action_log_p(imitation_obs, imitation_expert_actions)
-                    imitation_loss = -pred_logp.mean()
+                    # Q-filter
+                    pred_actions = agent.get_eval_action(imitation_obs)
+                    _, _, _, agent_vals = agent.get_action_and_value(imitation_obs, pred_actions)
+                    _, _, _, expert_vals = agent.get_action_and_value(imitation_obs, imitation_expert_actions)
+                    if warmup == 1:
+                        discount_coef = 1
+                    else:
+                        discount_coef = args.q_filter_coef if args.q_filter_coef != -1 else dapg_lam
+                    q_filter = torch.tensor([discount_coef if agent_val > expert_val else 1 for (agent_val, expert_val) in zip(agent_vals, expert_vals)], device='cuda:0')
+                    imitation_loss = -(pred_logp*q_filter).mean()
                 else:
                     pred_actions = agent.get_eval_action(imitation_obs)
                     # Q-filter
