@@ -88,13 +88,7 @@ def parse_args():
         help="initial lambda in DAPG")
     parser.add_argument("--lam-decay", type=float, default=0.999, # TODO: tune it
         help="the decay rate of lambda in DAPG")
-    parser.add_argument("--min-lam", type=float, default=0, # Might help the model not explode
-        help="the minimum value of lambda")
-    parser.add_argument("--q-filter", type=lambda x: bool(strtobool(x)), default=False, # Should we use q-filter
-        help="the minimum value of lambda")
-    parser.add_argument("--warmup-steps", type=float, default=0,
-        help="number of steps when only imitation loss is used")
-    parser.add_argument("--imitation-loss", type=str, default='MSE', choices=['NLL', 'MSE'], # TODO: tune this, different losses may need different scales of lambda, pls also try NONE; Suggestions from Zhan: when action range is [-1, 1], MSE is slightly better
+    parser.add_argument("--imitation-loss", type=str, default='NLL', choices=['NLL', 'MSE'], # TODO: tune this, different losses may need different scales of lambda, pls also try NONE; Suggestions from Zhan: when action range is [-1, 1], MSE is slightly better
         help="the type of imitation loss, DAPG uses NLL by default, BC uses MSE")
     # NOTE (important): If you use MSE loss, please use eval/suceess_rate as the metric, because MSE loss will not optimize the action std, resulting in low training success rates 
     parser.add_argument("--imitation-loss-th", type=float, default=np.log(0.01), # TODO: MSE loss is positve, NLL loss can be negative, should be tuned seperately!!
@@ -725,18 +719,6 @@ if __name__ == "__main__":
                 logratio = newlogprob - b_logprobs[mb_inds]
                 ratio = logratio.exp()
 
-                # # Q-filter
-                # pred_actions = agent.get_eval_action(imitation_obs)
-                # _, _, _, agent_vals = agent.get_action_and_value(imitation_obs, pred_actions)
-                # _, _, _, expert_vals = agent.get_action_and_value(imitation_obs, imitation_expert_actions)
-                # q_filter = torch.ones(args.imitation_batch_size, device=device)
-                # one_m_q_filter = torch.ones(args.imitation_batch_size, device=device)
-                
-                # if args.q_filter:
-                #     if warmup == 0:
-                #         q_filter = torch.le(agent_vals, expert_vals).long()
-                #     one_m_q_filter = 1 - q_filter
-
                 with torch.no_grad():
                     # calculate approx_kl http://joschu.net/blog/kl-approx.html
                     old_approx_kl = (-logratio).mean()
@@ -773,10 +755,6 @@ if __name__ == "__main__":
                 entropy_loss = entropy.mean()
                 rl_loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
 
-                warmup = 0
-                if global_step <= args.warmup_steps:
-                    warmup = 1
-
                 # Imitation loss
                 imitation_data = dagger_buf.sample(args.imitation_batch_size) # TODO: try different batch sizes for RL and imitation
                 imitation_obs = to_tensor(imitation_data['observations'], device)
@@ -788,6 +766,7 @@ if __name__ == "__main__":
                     pred_actions = agent.get_eval_action(imitation_obs)
                     imitation_loss = F.mse_loss(pred_actions, imitation_expert_actions)
                 scaled_imitation_loss = imitation_loss * dapg_lam
+
                 total_loss = rl_loss + scaled_imitation_loss
 
                 optimizer.zero_grad()
@@ -808,8 +787,7 @@ if __name__ == "__main__":
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
-        if global_step > args.warmup_steps:
-            dapg_lam = (dapg_lam - args.min_lam) * args.lam_decay + args.min_lam
+        dapg_lam *= args.lam_decay
         training_time += time.time() - tic
 
         # Log
