@@ -78,6 +78,8 @@ def parse_args():
         help="the number of warmup steps")
     parser.add_argument("--q-filter", type=lambda x:bool(strtobool(x)), default=False,
         help="the number of warmup steps")
+    parser.add_argument("--bc-loss-th", type=float, default=0.01, # important for training time
+        help="if the bc loss is smaller than this threshold, then stop training and collect new data")
 
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
@@ -668,6 +670,9 @@ if __name__ == "__main__":
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
                 for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
+
+            if imitation_loss < args.bc_loss_th and global_step <= args.warmup_steps:
+                break
         dapg_lam *= args.lam_decay
         training_time += time.time() - tic
         print('global step:', global_step, 'imitation_loss:', imitation_loss.item())
