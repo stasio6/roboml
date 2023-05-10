@@ -36,7 +36,7 @@ def parse_args():
         help="if toggled, cuda will be enabled by default")
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
-    parser.add_argument("--wandb-project-name", type=str, default="ManiSkill2-dev",
+    parser.add_argument("--wandb-project-name", type=str, default="s2v-DAgger-baselines",
         help="the wandb's project name")
     parser.add_argument("--wandb-entity", type=str, default=None,
         help="the entity (team) of wandb's project")
@@ -74,6 +74,10 @@ def parse_args():
         help="initial lambda in DAPG")
     parser.add_argument("--lam-decay", type=float, default=0.9997, # TODO: tune it
         help="the decay rate of lambda in DAPG")
+    parser.add_argument("--warmup-steps", type=int, default=0,
+        help="the number of warmup steps")
+    parser.add_argument("--q-filter", type=lambda x:bool(strtobool(x)), default=False,
+        help="the number of warmup steps")
 
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
@@ -625,10 +629,21 @@ if __name__ == "__main__":
             qf1_pi = qf1(data.observations["oracle_state"], pi)
             qf2_pi = qf2(data.observations["oracle_state"], pi)
             min_qf_pi = torch.min(qf1_pi, qf2_pi).view(-1)
-            actor_rl_loss = ((alpha * log_pi) - min_qf_pi).mean()
+            qf1_exp = qf1(data.observations["oracle_state"], data.observations["expert_action"])
+            qf2_exp = qf2(data.observations["oracle_state"], data.observations["expert_action"])
+            min_qf_exp = torch.min(qf1_pi, qf2_pi).view(-1)
+
+            rl_coefs = torch.ones(args.batch_size, device=device)
+            imitation_coefs = torch.ones(args.batch_size, device=device)
+            if global_step > args.warmup_steps and args.q_filter:
+                # It's no more warmup - we use Q-filter
+                rl_coefs = torch.le(min_qf_exp, min_qf_pi).long()
+                imitation_coefs = 1 - rl_coefs
+            actor_rl_loss = (((alpha * log_pi) - min_qf_pi)*rl_coefs).mean()
 
 
-            imitation_loss = F.mse_loss(pi_mean, data.observations['expert_action'])
+            # imitation_loss = F.mse_loss(pi_mean, data.observations['expert_action'])
+            imitation_loss = torch.mean(torch.mean((pi_mean - data.observations['expert_action'])**2, dim=1) * imitation_coefs)
             scaled_imitation_loss = imitation_loss * dapg_lam
 
             actor_total_loss = actor_rl_loss + scaled_imitation_loss
