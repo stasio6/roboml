@@ -70,10 +70,12 @@ def parse_args():
             help="Entropy regularization coefficient.")
     parser.add_argument("--autotune", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
         help="automatic tuning of the entropy coefficient")
-    parser.add_argument("--init-lam", type=float, default=1, # TODO: tune it, but my intuition is to set it close to 1
-        help="initial lambda in DAPG")
-    parser.add_argument("--lam-decay", type=float, default=0.9997, # TODO: tune it
-        help="the decay rate of lambda in DAPG")
+    parser.add_argument("--warmup-steps", type=int, default=0,
+        help="the number of warmup steps")
+    parser.add_argument("--q-filter", type=lambda x:bool(strtobool(x)), default=False,
+        help="the number of warmup steps")
+    parser.add_argument("--bc-loss-th", type=float, default=0.01, # important for training time
+        help="if the bc loss is smaller than this threshold, then stop training and collect new data")
 
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
@@ -550,7 +552,6 @@ if __name__ == "__main__":
     num_updates_per_training = int(args.training_freq // args.num_steps_per_update)
     result = defaultdict(list)
     collect_time = training_time = eval_time = 0
-    dapg_lam = args.init_lam
 
     start_time = time.time()
     while global_step < args.total_timesteps:
@@ -625,13 +626,23 @@ if __name__ == "__main__":
             qf1_pi = qf1(data.observations["oracle_state"], pi)
             qf2_pi = qf2(data.observations["oracle_state"], pi)
             min_qf_pi = torch.min(qf1_pi, qf2_pi).view(-1)
-            actor_rl_loss = ((alpha * log_pi) - min_qf_pi).mean()
+            qf1_exp = qf1(data.observations["oracle_state"], data.observations["expert_action"])
+            qf2_exp = qf2(data.observations["oracle_state"], data.observations["expert_action"])
+            min_qf_exp = torch.min(qf1_pi, qf2_pi).view(-1)
+
+            rl_coefs = torch.ones(args.batch_size, device=device)
+            imitation_coefs = torch.ones(args.batch_size, device=device)
+            if global_step > args.warmup_steps and args.q_filter:
+                # It's no more warmup - we use Q-filter
+                rl_coefs = torch.le(min_qf_exp, min_qf_pi).long()
+                imitation_coefs = 1 - rl_coefs
+            actor_rl_loss = (((alpha * log_pi) - min_qf_pi)*rl_coefs).mean()
 
 
-            imitation_loss = F.mse_loss(pi_mean, data.observations['expert_action'])
-            scaled_imitation_loss = imitation_loss * dapg_lam
+            # imitation_loss = F.mse_loss(pi_mean, data.observations['expert_action'])
+            imitation_loss = torch.mean(torch.mean((pi_mean - data.observations['expert_action'])**2, dim=1) * imitation_coefs)
 
-            actor_total_loss = actor_rl_loss + scaled_imitation_loss
+            actor_total_loss = actor_rl_loss + imitation_loss
 
             actor_optimizer.zero_grad()
             actor_total_loss.backward()
@@ -653,7 +664,9 @@ if __name__ == "__main__":
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
                 for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-        dapg_lam *= args.lam_decay
+
+            if imitation_loss < args.bc_loss_th and global_step <= args.warmup_steps:
+                break
         training_time += time.time() - tic
         print('global step:', global_step, 'imitation_loss:', imitation_loss.item())
 
@@ -663,7 +676,6 @@ if __name__ == "__main__":
                 for k, v in result.items():
                     writer.add_scalar(f"train/{k}", np.mean(v), global_step)
                 result = defaultdict(list)
-            writer.add_scalar("charts/dapg_lambda", dapg_lam, global_step)
             writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
             writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
             writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
@@ -673,7 +685,7 @@ if __name__ == "__main__":
             writer.add_scalar("losses/alpha", alpha, global_step)
             writer.add_scalar("losses/actor_total_loss", actor_total_loss.item(), global_step)
             writer.add_scalar("losses/imitation_loss", imitation_loss.item(), global_step)
-            writer.add_scalar("losses/scaled_imitation_loss", scaled_imitation_loss.item(), global_step)
+            writer.add_scalar("losses/scaled_imitation_loss", imitation_loss.item(), global_step)
             
             # print("SPS:", int(global_step / (time.time() - start_time)))
             tot_time = time.time() - start_time
