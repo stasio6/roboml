@@ -80,7 +80,6 @@ def parse_args():
     assert args.num_eval_envs == 1 or not args.capture_video, "Cannot capture video with multiple eval envs."
     assert args.num_steps_per_collect % args.num_envs == 0
     args.num_steps = int(args.num_steps_per_collect // args.num_envs)
-    assert args.num_steps_per_collect % args.minibatch_size == 0
     args.num_minibatches = int(args.num_steps_per_collect // args.minibatch_size)
     args.num_updates_per_collect = int(args.num_steps_per_collect / args.num_steps_per_update)
     assert args.num_updates_per_collect % args.num_minibatches == 0
@@ -496,7 +495,7 @@ if __name__ == "__main__":
     if tmp_env.spec.max_episode_steps > args.num_steps:
         print("\033[93mWARN: num_steps is less than max episode length. "
             "Consider raise num_steps_per_collect or lower num_envs. Continue?\033[0m")
-        aaa = input()
+        # aaa = input()
     del tmp_env
     envs = make_vec_env(args.env_id, args.num_envs, args.seed, args.control_mode, args.image_size)
     # if args.rew_norm:
