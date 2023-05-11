@@ -53,26 +53,27 @@ def parse_args():
         help="the learning rate of the optimizer")
     parser.add_argument("--num-envs", type=int, default=16,
         help="the number of parallel game environments")
-    parser.add_argument("--num-steps-per-collect", type=int, default=8000, # this hp is pretty important
+    parser.add_argument("--num-steps-per-collect", type=int, default=64, # this hp is pretty important
         help="the number of steps to run in all environment in total per policy rollout")
     parser.add_argument("--minibatch-size", type=int, default=50,
         help="the size of mini-batches")
-    parser.add_argument("--num-steps-per-update", type=float, default=2, # should be tuned based on sim time and training time
+    parser.add_argument("--num-steps-per-update", type=float, default=1, # should be tuned based on sim time and tranining time
         help="the ratio between env steps and num of gradient updates, lower means more updates")
     parser.add_argument("--bc-loss-th", type=float, default=0.01, # important for training time
         help="if the bc loss is smaller than this threshold, then stop training and collect new data")
+    parser.add_argument("--learning-starts", type=int, default=1000,
+        help="timestep to start learning")
 
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=50_000)
-    parser.add_argument("--num-eval-episodes", type=int, default=20)
+    parser.add_argument("--num-eval-episodes", type=int, default=10)
     parser.add_argument("--num-eval-envs", type=int, default=1)
-    parser.add_argument("--log-freq", type=int, default=4000)
+    parser.add_argument("--log-freq", type=int, default=1000)
     parser.add_argument("--save-freq", type=int, default=500_000)
     parser.add_argument("--control-mode", type=str, default='pd_ee_delta_pos')
     parser.add_argument("--expert-ckpt", type=str, default='output/PickCube-v1/SAC-ms2-new/230329-142137_1_profile/checkpoints/600000.pt')
     parser.add_argument("--image-size", type=int, default=None,
         help="the size of observation image, e.g. 64 means 64x64")
-
 
     args = parser.parse_args()
     args.algo_name = ALGO_NAME
@@ -80,10 +81,7 @@ def parse_args():
     assert args.num_eval_envs == 1 or not args.capture_video, "Cannot capture video with multiple eval envs."
     assert args.num_steps_per_collect % args.num_envs == 0
     args.num_steps = int(args.num_steps_per_collect // args.num_envs)
-    args.num_minibatches = int(args.num_steps_per_collect // args.minibatch_size)
     args.num_updates_per_collect = int(args.num_steps_per_collect / args.num_steps_per_update)
-    assert args.num_updates_per_collect % args.num_minibatches == 0
-    args.update_epochs = int(args.num_updates_per_collect // args.num_minibatches)
     args.num_eval_envs = min(args.num_eval_envs, args.num_eval_episodes)
     assert args.num_eval_episodes % args.num_eval_envs == 0
     # assert args.env_id in args.expert_ckpt, 'Expert checkpoint should be trained on the same env'
@@ -108,7 +106,7 @@ class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
         return self.convert_obs(obs, self.concat_fn)
     
     @staticmethod
-    def build_obs_space(env):
+    def build_obs_space(env, depth_dtype=np.float16):
         obs_space = env.observation_space
         state_dim = 0
         for k in ['agent', 'extra']:
@@ -121,22 +119,20 @@ class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
             'state': spaces.Box(-float("inf"), float("inf"), shape=(state_dim,), dtype=np.float32),
             'image': spaces.Dict({
                 'rgb': spaces.Box(0, 255, shape=(h,w,k*3), dtype=np.uint8),
-                'depth': spaces.Box(-float("inf"), float("inf"), shape=(h,w,k), dtype=np.float16),
+                'depth': spaces.Box(-float("inf"), float("inf"), shape=(h,w,k), dtype=depth_dtype),
             })
         })
+    # NOTE: We have to use float32 for gym AsyncVecEnv since it does not support float16, but we can use float16 for MS2 vec env
     
     @staticmethod
     def convert_obs(obs, concat_fn):
         img_dict = obs['image']
-        new_imgage_dict = {
+        new_img_dict = {
             key: concat_fn([v[key] for v in img_dict.values()])
             for key in ['rgb', 'depth']
         }
-        depth = new_imgage_dict['depth']
-        if not isinstance(depth, np.ndarray):
-            new_imgage_dict['depth'] = depth.to(torch.float16)
-        else:
-            new_imgage_dict['depth'] = depth.astype(np.float16)
+        if isinstance(new_img_dict['depth'], torch.Tensor): # MS2 vec env uses float16, but gym AsyncVecEnv uses float32
+            new_img_dict['depth'] = new_img_dict['depth'].to(torch.float16)
 
         state = np.hstack([
             flatten_state_dict(obs["agent"]),
@@ -144,7 +140,7 @@ class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
         ])
 
         out_dict = {
-            'image': new_imgage_dict,
+            'image': new_img_dict,
             'state': state,
         }
         return out_dict
@@ -153,7 +149,7 @@ class MS2_RGBDObsWrapper(ObservationWrapper):
     def __init__(self, env):
         super().__init__(env)
         assert self.obs_mode == 'rgbd'
-        self.observation_space = MS2_RGBDVecEnvObsWrapper.build_obs_space(env)
+        self.observation_space = MS2_RGBDVecEnvObsWrapper.build_obs_space(env, depth_dtype=np.float32)
         self.concat_fn = partial(np.concatenate, axis=-1)
 
     def observation(self, obs):
@@ -187,24 +183,31 @@ class GetStateObsWrapper(Wrapper):
         raw_env._obs_mode = original_obs_mode
         return state_obs
 
-def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, video_dir=None):
+def seed_env(env, seed):
+    env.seed(seed)
+    env.action_space.seed(seed)
+    env.observation_space.seed(seed)
+
+def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, video_dir=None, gym_vec_env=False):
+    assert gym_vec_env or video_dir is None, 'Saving video is only supported for gym vec env'
     cam_cfg = {'width': image_size, 'height': image_size} if image_size else None
     wrappers = [
         gym.wrappers.RecordEpisodeStatistics,
         gym.wrappers.ClipAction,
     ]
-    if video_dir:
-        assert num_envs == 1, "Cannot capture video with multiple envs."
-        wrappers += [
-            partial(RecordEpisode, output_dir=video_dir, save_trajectory=False, info_on_video=True),
-            MS2_RGBDObsWrapper,
-        ]
-        # RecordEpisode is not compatible with MS2 vec env, so we have to use the normal env
-        def make_env_fn():
-            env = gym.make(env_id, reward_mode='dense', obs_mode='rgbd', control_mode=control_mode, camera_cfgs=cam_cfg)
-            for wrapper in wrappers: env = wrapper(env)
-            return env
-        envs = gym.vector.SyncVectorEnv([make_env_fn])
+    if gym_vec_env:
+        if video_dir:
+            wrappers.append(partial(RecordEpisode, output_dir=video_dir, save_trajectory=False, info_on_video=True))
+        wrappers.append(MS2_RGBDObsWrapper)
+        def make_single_env(_seed):
+            def thunk():
+                env = gym.make(env_id, reward_mode='dense', obs_mode='rgbd', control_mode=control_mode, camera_cfgs=cam_cfg)
+                for wrapper in wrappers: env = wrapper(env)
+                seed_env(env, _seed)
+                return env
+            return thunk
+        # must use AsyncVectorEnv, so that the renderers will be in different processes
+        envs = gym.vector.AsyncVectorEnv([make_single_env(seed + i) for i in range(num_envs)], context='forkserver')
     else:
         wrappers.append(GetStateObsWrapper)
         envs = mani_skill2.vector.make(
@@ -215,23 +218,13 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
         envs = AutoResetVecEnvWrapper(envs) # must be outside of ObsWrapper, otherwise info['terminal_obs'] will be raw obs
         envs.single_action_space = envs.action_space
         envs.single_observation_space = envs.observation_space
-
-    envs.seed(seed)
-    envs.action_space.seed(seed)
-    envs.observation_space.seed(seed)
-    envs.single_action_space.seed(seed)
-    envs.single_observation_space.seed(seed)
+        seed_env(envs, seed)
 
     return envs
 
 def get_state_obs(envs):
     return np.vstack(envs.env_method('get_state_mode_obs'))
 
-
-def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
-    torch.nn.init.orthogonal_(layer.weight, std)
-    torch.nn.init.constant_(layer.bias, bias_const)
-    return layer
 
 def make_mlp(in_channels, mlp_channels, act_builder=nn.ReLU, last_act=True):
     c_in = in_channels
@@ -249,9 +242,11 @@ class PlainConv(nn.Module):
                  out_dim=256,
                  max_pooling=False,
                  inactivated_output=False, # False for ConvBody, True for CNN
+                 image_size=128,
                  ):
+        assert image_size in [64, 128]
         super().__init__()
-
+        self.out_dim = out_dim
         self.cnn = nn.Sequential(
             nn.Conv2d(in_channels, 16, 3, padding=1, bias=True), nn.ReLU(inplace=True),
             nn.MaxPool2d(2, 2),  # [64, 64]
@@ -265,13 +260,13 @@ class PlainConv(nn.Module):
             nn.MaxPool2d(2, 2),  # [4, 4]
             nn.Conv2d(128, 128, 1, padding=0, bias=True), nn.ReLU(inplace=True),
         )
-
+        feature_size = int((image_size / 32) ** 2)
         if max_pooling:
             self.pool = nn.AdaptiveMaxPool2d((1, 1))
             self.fc = make_mlp(128, [out_dim], last_act=not inactivated_output)
         else:
             self.pool = None
-            self.fc = make_mlp(128 * 4 * 4, [out_dim], last_act=not inactivated_output)
+            self.fc = make_mlp(128 * feature_size, [out_dim], last_act=not inactivated_output)
 
         self.reset_parameters()
 
@@ -295,7 +290,8 @@ class Agent(nn.Module):
         super().__init__()
         action_dim = np.prod(envs.single_action_space.shape)
         state_dim = envs.single_observation_space['state'].shape[0]
-        self.encoder = PlainConv(in_channels=8, out_dim=256, max_pooling=False, inactivated_output=False)
+        image_size = envs.single_observation_space['image']['rgb'].shape[0]
+        self.encoder = PlainConv(in_channels=8, out_dim=256, max_pooling=False, inactivated_output=False, image_size=image_size)
         self.actor = make_mlp(256+state_dim, [512, 256, action_dim], last_act=False)
         self.get_eval_action = self.get_action = self.forward
 
@@ -491,17 +487,12 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # env setup
-    tmp_env = gym.make(args.env_id)
-    if tmp_env.spec.max_episode_steps > args.num_steps:
-        print("\033[93mWARN: num_steps is less than max episode length. "
-            "Consider raise num_steps_per_collect or lower num_envs. Continue?\033[0m")
-        # aaa = input()
-    del tmp_env
+    # We need to create eval_envs (w/ AsyncVecEnv) first, since it will fork the main process, and we want to avoid 2 renderers in the same process.
+    eval_envs = make_vec_env(args.env_id, args.num_eval_envs, args.seed+1000, args.control_mode, args.image_size,
+                             video_dir=f'{log_path}/videos' if args.capture_video else None, gym_vec_env=True)
     envs = make_vec_env(args.env_id, args.num_envs, args.seed, args.control_mode, args.image_size)
     # if args.rew_norm:
     #     envs = gym.wrappers.NormalizeReward(envs, args.gamma)
-    # eval_envs = make_vec_env(args.env_id, args.num_eval_envs, args.seed+1000, args.control_mode, args.image_size,
-    #                          video_dir=f'{log_path}/videos' if args.capture_video else None)
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
     print(envs.single_action_space)
     print(envs.single_observation_space)
@@ -602,28 +593,24 @@ if __name__ == "__main__":
         b_expert_actions = expert.get_eval_action(b_expert_obs).detach()
         dagger_buf.add(b_obs, b_expert_actions)
 
+        if global_step < args.learning_starts:
+            continue
+
         # Optimizing the policy and value network
         agent.train()
-        # b_inds = np.arange(args.num_steps_per_collect)
-        for epoch in range(args.update_epochs):
-            mean_loss = 0.0
-            # np.random.shuffle(b_inds)
-            for start in range(0, args.num_steps_per_collect, args.minibatch_size):
-                # end = start + args.minibatch_size
-                # mb_inds = b_inds[start:end]
+        for i_update in range(args.num_updates_per_collect):
+            # Behavior Cloning
+            data = dagger_buf.sample(args.minibatch_size)
+            pred_actions = agent.get_action(to_tensor(data['observations'], device))
+            loss = F.mse_loss(pred_actions, data['expert_actions'].to(device))
 
-                # Behavior Cloning
-                data = dagger_buf.sample(args.minibatch_size)
-                pred_actions = agent.get_action(to_tensor(data['observations'], device))
-                loss = F.mse_loss(pred_actions, data['expert_actions'].to(device))
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            _loss = loss.item()
 
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                mean_loss += loss.item()
-            mean_loss /= (args.num_steps_per_collect // args.minibatch_size)
-            print('epoch:', epoch, 'loss:', mean_loss)
-            if args.bc_loss_th is not None and mean_loss < args.bc_loss_th:
+            print('i_update:', i_update,'loss:', _loss)
+            if args.bc_loss_th is not None and _loss < args.bc_loss_th:
                 break
 
         training_time += time.time() - tic
@@ -635,8 +622,8 @@ if __name__ == "__main__":
                     writer.add_scalar(f"train/{k}", np.mean(v), global_step)
                 result = defaultdict(list)
             writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
-            writer.add_scalar("losses/bc_loss", mean_loss, global_step)
-            writer.add_scalar("losses/update_epochs", epoch + 1, global_step)
+            writer.add_scalar("losses/bc_loss", _loss, global_step)
+            writer.add_scalar("losses/num_updates", i_update + 1, global_step)
             # print("SPS:", int(global_step / (time.time() - start_time)))
             tot_time = time.time() - start_time
             writer.add_scalar("charts/SPS", int(global_step / tot_time), global_step)
@@ -647,12 +634,12 @@ if __name__ == "__main__":
             writer.add_scalar("charts/training_SPS", int(global_step / training_time), global_step)
 
         # Evaluation
-        # if (global_step - args.num_steps_per_collect) // args.eval_freq < global_step // args.eval_freq:
-        #     tic = time.time()
-        #     result = evaluate(args.num_eval_episodes, agent, eval_envs, device)
-        #     eval_time += time.time() - tic
-        #     for k, v in result.items():
-        #         writer.add_scalar(f"eval/{k}", np.mean(v), global_step)
+        if (global_step - args.num_steps_per_collect) // args.eval_freq < global_step // args.eval_freq:
+            tic = time.time()
+            result = evaluate(args.num_eval_episodes, agent, eval_envs, device)
+            eval_time += time.time() - tic
+            for k, v in result.items():
+                writer.add_scalar(f"eval/{k}", np.mean(v), global_step)
         
         # Checkpoint
         if args.save_freq and ( update == num_updates or \
