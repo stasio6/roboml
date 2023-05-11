@@ -72,8 +72,6 @@ def parse_args():
         help="automatic tuning of the entropy coefficient")
     parser.add_argument("--warmup-steps", type=int, default=0,
         help="the number of warmup steps")
-    parser.add_argument("--q-filter", type=lambda x:bool(strtobool(x)), default=False,
-        help="the number of warmup steps")
     parser.add_argument("--bc-loss-th", type=float, default=0.01, # important for training time
         help="if the bc loss is smaller than this threshold, then stop training and collect new data")
 
@@ -83,7 +81,7 @@ def parse_args():
     parser.add_argument("--num-eval-episodes", type=int, default=10)
     parser.add_argument("--num-eval-envs", type=int, default=1)
     parser.add_argument("--sync-venv", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
-    parser.add_argument("--num-steps-per-update", type=float, default=2) # TODO: tune this
+    parser.add_argument("--num-steps-per-update", type=float, default=1) # TODO: tune this
     parser.add_argument("--training-freq", type=int, default=64)
     parser.add_argument("--log-freq", type=int, default=2000)
     parser.add_argument("--save-freq", type=int, default=500_000)
@@ -630,19 +628,21 @@ if __name__ == "__main__":
             qf2_exp = qf2(data.observations["oracle_state"], data.observations["expert_action"])
             min_qf_exp = torch.min(qf1_pi, qf2_pi).view(-1)
 
-            rl_coefs = torch.ones(args.batch_size, device=device)
-            imitation_coefs = torch.ones(args.batch_size, device=device)
-            if global_step > args.warmup_steps and args.q_filter:
+            if global_step <= args.warmup_steps:
+                # pure imitation to warm up
+                imitation_loss = F.mse_loss(pi_mean, data.observations['expert_action'])
+                actor_rl_loss = imitation_loss * 0
+                actor_total_loss = imitation_loss
+            else:
                 # It's no more warmup - we use Q-filter
                 rl_coefs = torch.le(min_qf_exp, min_qf_pi).long()
                 imitation_coefs = 1 - rl_coefs
-            actor_rl_loss = (((alpha * log_pi) - min_qf_pi)*rl_coefs).mean()
+                actor_rl_loss = (((alpha * log_pi) - min_qf_pi)*rl_coefs).mean()
 
+                # imitation_loss = F.mse_loss(pi_mean, data.observations['expert_action'])
+                imitation_loss = torch.mean(torch.mean((pi_mean - data.observations['expert_action'])**2, dim=1) * imitation_coefs)
 
-            # imitation_loss = F.mse_loss(pi_mean, data.observations['expert_action'])
-            imitation_loss = torch.mean(torch.mean((pi_mean - data.observations['expert_action'])**2, dim=1) * imitation_coefs)
-
-            actor_total_loss = actor_rl_loss + imitation_loss
+                actor_total_loss = actor_rl_loss + imitation_loss
 
             actor_optimizer.zero_grad()
             actor_total_loss.backward()
