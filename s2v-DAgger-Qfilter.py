@@ -76,6 +76,7 @@ def parse_args():
         help="if the bc loss is smaller than this threshold, then stop training and collect new data")
     parser.add_argument("--warmup-policy", type=int, default=1, # important for not crashing
         help="when in warmup, 2 and 3 do not update q-functions, 1 and 3 do not update alpha")
+    parser.add_argument("--load-alpha", type=float, default=None)
 
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
@@ -487,16 +488,8 @@ if __name__ == "__main__":
     max_action = float(envs.single_action_space.high[0])
 
     actor = Actor(envs).to(device)
-    qf1 = SoftQNetwork(envs).to(device)
-    qf2 = SoftQNetwork(envs).to(device)
-    qf1_target = SoftQNetwork(envs).to(device)
-    qf2_target = SoftQNetwork(envs).to(device)
     if args.from_ckpt is not None:
         raise NotImplementedError()
-    qf1_target.load_state_dict(qf1.state_dict())
-    qf2_target.load_state_dict(qf2.state_dict())
-    q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
-    actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
 
     # expert setup
     from os.path import dirname as up
@@ -522,11 +515,25 @@ if __name__ == "__main__":
         if key in checkpoint:
             expert.load_state_dict(checkpoint[key])
             break
+    qf1 = SoftQNetwork(envs).to(device)
+    qf2 = SoftQNetwork(envs).to(device)
+    qf1.load_state_dict(checkpoint['qf1']) # load critic from expert ckpt
+    qf2.load_state_dict(checkpoint['qf2'])
+    qf1_target = SoftQNetwork(envs).to(device)
+    qf2_target = SoftQNetwork(envs).to(device)
+    qf1_target.load_state_dict(qf1.state_dict())
+    qf2_target.load_state_dict(qf2.state_dict())
+    q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
+    actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
 
     # Automatic entropy tuning
     if args.autotune:
         target_entropy = -torch.prod(torch.Tensor(envs.single_action_space.shape).to(device)).item()
-        log_alpha = torch.zeros(1, requires_grad=True, device=device)
+        if args.load_alpha is not None:
+            log_alpha = torch.Tensor([np.log(args.load_alpha)]).to(device)
+            log_alpha.requires_grad = True
+        else:
+            log_alpha = torch.zeros(1, requires_grad=True, device=device)
         alpha = log_alpha.exp().item()
         a_optimizer = optim.Adam([log_alpha], lr=args.q_lr)
     else:
