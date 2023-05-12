@@ -54,7 +54,7 @@ def parse_args():
         help="the discount factor gamma")
     parser.add_argument("--tau", type=float, default=0.01,
         help="target smoothing coefficient (default: 0.01)")
-    parser.add_argument("--batch-size", type=int, default=512,
+    parser.add_argument("--batch-size", type=int, default=64,
         help="the batch size of sample from the reply memory")
     parser.add_argument("--learning-starts", type=int, default=4000,
         help="timestep to start learning")
@@ -72,8 +72,14 @@ def parse_args():
         help="automatic tuning of the entropy coefficient")
     parser.add_argument("--init-lam", type=float, default=1, # TODO: tune it, but my intuition is to set it close to 1
         help="initial lambda in DAPG")
+    parser.add_argument("--warmup-steps", type=int, default=20000,
+        help="the number of warmup steps")
     parser.add_argument("--lam-decay", type=float, default=0.9997, # TODO: tune it
         help="the decay rate of lambda in DAPG")
+    parser.add_argument("--bc-loss-th", type=float, default=0.01, # important for training time
+        help="if the bc loss is smaller than this threshold, then stop training and collect new data")
+    parser.add_argument("--warmup-policy", type=int, default=1, # important for not crashing
+        help="when in warmup, 2 and 3 do not update q-functions, 1 and 3 do not update alpha")
 
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
@@ -81,7 +87,7 @@ def parse_args():
     parser.add_argument("--num-eval-episodes", type=int, default=10)
     parser.add_argument("--num-eval-envs", type=int, default=1)
     parser.add_argument("--sync-venv", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
-    parser.add_argument("--num-steps-per-update", type=float, default=2) # TODO: tune this
+    parser.add_argument("--num-steps-per-update", type=float, default=1) # TODO: tune this
     parser.add_argument("--training-freq", type=int, default=64)
     parser.add_argument("--log-freq", type=int, default=2000)
     parser.add_argument("--save-freq", type=int, default=500_000)
@@ -598,46 +604,58 @@ if __name__ == "__main__":
         for local_update in range(num_updates_per_training):
             global_update += 1
             data = rb.sample(args.batch_size)
+            warmup = global_step <= args.warmup_steps
+            update_q = args.warmup_policy == 0 or args.warmup_policy == 1
+            update_alpha = args.warmup_policy == 0 or args.warmup_policy == 2
 
-            # update the value networks
-            with torch.no_grad():
-                next_state_actions, next_state_log_pi, _ = actor.get_action(data.next_observations)
-                qf1_next_target = qf1_target(data.next_observations["oracle_state"], next_state_actions)
-                qf2_next_target = qf2_target(data.next_observations["oracle_state"], next_state_actions)
-                min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
-                if args.value_always_bootstrap:
-                    next_q_value = data.rewards.flatten() + args.gamma * (min_qf_next_target).view(-1)
-                else:
-                    next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (min_qf_next_target).view(-1)
+            if not warmup or update_q:
+                # update the value networks
+                with torch.no_grad():
+                    next_state_actions, next_state_log_pi, _ = actor.get_action(data.next_observations)
+                    qf1_next_target = qf1_target(data.next_observations["oracle_state"], next_state_actions)
+                    qf2_next_target = qf2_target(data.next_observations["oracle_state"], next_state_actions)
+                    min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
+                    if args.value_always_bootstrap:
+                        next_q_value = data.rewards.flatten() + args.gamma * (min_qf_next_target).view(-1)
+                    else:
+                        next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (min_qf_next_target).view(-1)
 
-            qf1_a_values = qf1(data.observations["oracle_state"], data.actions).view(-1)
-            qf2_a_values = qf2(data.observations["oracle_state"], data.actions).view(-1)
-            qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
-            qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
-            qf_loss = qf1_loss + qf2_loss
+                qf1_a_values = qf1(data.observations["oracle_state"], data.actions).view(-1)
+                qf2_a_values = qf2(data.observations["oracle_state"], data.actions).view(-1)
+                qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
+                qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
+                qf_loss = qf1_loss + qf2_loss
 
-            q_optimizer.zero_grad()
-            qf_loss.backward()
-            q_optimizer.step()
+                q_optimizer.zero_grad()
+                qf_loss.backward()
+                q_optimizer.step()
 
-            # update the policy network (SAC + DAgger)
-            pi, log_pi, pi_mean = actor.get_action(data.observations)
-            qf1_pi = qf1(data.observations["oracle_state"], pi)
-            qf2_pi = qf2(data.observations["oracle_state"], pi)
-            min_qf_pi = torch.min(qf1_pi, qf2_pi).view(-1)
-            actor_rl_loss = ((alpha * log_pi) - min_qf_pi).mean()
+                # update the policy network (SAC + DAgger)
+                pi, log_pi, pi_mean = actor.get_action(data.observations)
+                qf1_pi = qf1(data.observations["oracle_state"], pi)
+                qf2_pi = qf2(data.observations["oracle_state"], pi)
+                min_qf_pi = torch.min(qf1_pi, qf2_pi).view(-1)
 
 
-            imitation_loss = F.mse_loss(pi_mean, data.observations['expert_action'])
-            scaled_imitation_loss = imitation_loss * dapg_lam
+            if warmup:
+                # pure imitation to warm up
+                _, _, pi_mean = actor.get_action(data.observations)
+                imitation_loss = F.mse_loss(pi_mean, data.observations['expert_action'])
+                scaled_imitation_loss = imitation_loss
+                actor_rl_loss = imitation_loss * 0
+                actor_total_loss = imitation_loss
+            else:
+                actor_rl_loss = ((alpha * log_pi) - min_qf_pi).mean()
+                imitation_loss = F.mse_loss(pi_mean, data.observations['expert_action'])
+                scaled_imitation_loss = imitation_loss * dapg_lam
 
-            actor_total_loss = actor_rl_loss + scaled_imitation_loss
+                actor_total_loss = actor_rl_loss + scaled_imitation_loss
 
             actor_optimizer.zero_grad()
             actor_total_loss.backward()
             actor_optimizer.step()
 
-            if args.autotune:
+            if args.autotune and (not warmup or update_alpha):
                 with torch.no_grad():
                     _, log_pi, _ = actor.get_action(data.observations)
                 alpha_loss = (-log_alpha * (log_pi + target_entropy)).mean()
@@ -648,11 +666,14 @@ if __name__ == "__main__":
                 alpha = log_alpha.exp().item()
 
             # update the target networks
-            if global_update % args.target_network_frequency == 0:
+            if global_update % args.target_network_frequency == 0 and (not warmup or update_q):
                 for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
                 for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
+
+            if imitation_loss < args.bc_loss_th and warmup:
+                break
         dapg_lam *= args.lam_decay
         training_time += time.time() - tic
         print('global step:', global_step, 'imitation_loss:', imitation_loss.item())
@@ -664,11 +685,12 @@ if __name__ == "__main__":
                     writer.add_scalar(f"train/{k}", np.mean(v), global_step)
                 result = defaultdict(list)
             writer.add_scalar("charts/dapg_lambda", dapg_lam, global_step)
-            writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
-            writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
-            writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
-            writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
-            writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
+            if not warmup or update_q:
+                writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
+                writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
+                writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
+                writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
+                writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
             writer.add_scalar("losses/actor_rl_loss", actor_rl_loss.item(), global_step)
             writer.add_scalar("losses/alpha", alpha, global_step)
             writer.add_scalar("losses/actor_total_loss", actor_total_loss.item(), global_step)
@@ -683,7 +705,7 @@ if __name__ == "__main__":
             writer.add_scalar("charts/eval_time", eval_time / tot_time, global_step)
             writer.add_scalar("charts/collect_SPS", int(global_step / collect_time), global_step)
             writer.add_scalar("charts/training_SPS", int(global_step / training_time), global_step)
-            if args.autotune:
+            if args.autotune and (not warmup or update_alpha):
                 writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
 
         # Evaluation

@@ -54,7 +54,7 @@ def parse_args():
         help="the discount factor gamma")
     parser.add_argument("--tau", type=float, default=0.01,
         help="target smoothing coefficient (default: 0.01)")
-    parser.add_argument("--batch-size", type=int, default=512,
+    parser.add_argument("--batch-size", type=int, default=64,
         help="the batch size of sample from the reply memory")
     parser.add_argument("--learning-starts", type=int, default=4000,
         help="timestep to start learning")
@@ -70,11 +70,11 @@ def parse_args():
             help="Entropy regularization coefficient.")
     parser.add_argument("--autotune", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
         help="automatic tuning of the entropy coefficient")
-    parser.add_argument("--warmup-steps", type=int, default=0,
+    parser.add_argument("--warmup-steps", type=int, default=20000,
         help="the number of warmup steps")
     parser.add_argument("--bc-loss-th", type=float, default=0.01, # important for training time
         help="if the bc loss is smaller than this threshold, then stop training and collect new data")
-    parser.add_argument("--warmup-policy", type=int, default=3, # important for not crashing
+    parser.add_argument("--warmup-policy", type=int, default=1, # important for not crashing
         help="when in warmup, 2 and 3 do not update q-functions, 1 and 3 do not update alpha")
 
     parser.add_argument("--output-dir", type=str, default='output')

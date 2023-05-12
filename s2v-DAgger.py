@@ -55,7 +55,7 @@ def parse_args():
         help="the number of parallel game environments")
     parser.add_argument("--num-steps-per-collect", type=int, default=64, # this hp is pretty important
         help="the number of steps to run in all environment in total per policy rollout")
-    parser.add_argument("--minibatch-size", type=int, default=50,
+    parser.add_argument("--minibatch-size", type=int, default=64,
         help="the size of mini-batches")
     parser.add_argument("--num-steps-per-update", type=float, default=1, # should be tuned based on sim time and tranining time
         help="the ratio between env steps and num of gradient updates, lower means more updates")
