@@ -70,7 +70,7 @@ def parse_args():
             help="Entropy regularization coefficient.")
     parser.add_argument("--autotune", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
         help="automatic tuning of the entropy coefficient")
-    parser.add_argument("--warmup-steps", type=int, default=20000,
+    parser.add_argument("--warmup-steps", type=int, default=0,
         help="the number of warmup steps")
     parser.add_argument("--bc-loss-th", type=float, default=0.01, # important for training time
         help="if the bc loss is smaller than this threshold, then stop training and collect new data")
