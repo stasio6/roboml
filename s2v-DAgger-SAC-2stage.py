@@ -225,8 +225,8 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
         # print('press enter to continue (but make sure you have read the comment!!!!!!)')
         # aa = input() # You can comment out these lines after you making the correct choice
         # select ONE of the following two lines
-        gym_vec_env = True;  # NOTE: if you are running RL or anything needs demo data
-        # vec_env_reward_mode = 'sparse' # NOTE: if you are running pure DAgger, no RL, no demo data
+        # gym_vec_env = True;  # NOTE: if you are running RL or anything needs demo data
+        vec_env_reward_mode = 'sparse' # NOTE: if you are running pure DAgger, no RL, no demo data
         # everything in this block is ONLY for MS1 envs, you do not need to change anything for MS2 envs
         if 'Door_unified' in env_id:
             gym_vec_env = True 
@@ -250,7 +250,7 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
         envs = gym.vector.AsyncVectorEnv([make_single_env(seed + i) for i in range(num_envs)], context='forkserver')
     else:
         envs = mani_skill2.vector.make(
-            env_id, num_envs, obs_mode='rgbd', reward_mode='dense', control_mode=control_mode, wrappers=wrappers, camera_cfgs=cam_cfg,
+            env_id, num_envs, obs_mode='rgbd', reward_mode=vec_env_reward_mode, control_mode=control_mode, wrappers=wrappers, camera_cfgs=cam_cfg,
         )
         envs.is_vector_env = True
         envs = MS2_RGBDStateVecEnvObsWrapper(envs) # must be outside of ms2_vec_env, otherwise obs will be raw
@@ -637,11 +637,11 @@ if __name__ == "__main__":
             if not learning_has_started:
                 actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
             else:
-                actions, _, _ = actor.get_action(to_tensor(obs, device)) # use pre-trained std here
-                # if global_step < args.dagger_steps:
-                #     actions = actor.get_eval_action(to_tensor(obs, device))
-                # else:
-                #     actions, _, _ = actor.get_action(to_tensor(obs, device))
+                # actions, _, _ = actor.get_action(to_tensor(obs, device)) # use pre-trained std here
+                if global_step < args.dagger_steps:
+                    actions = actor.get_eval_action(to_tensor(obs, device))
+                else:
+                    actions, _, _ = actor.get_action(to_tensor(obs, device))
                 actions = actions.detach().cpu().numpy()
 
             # TRY NOT TO MODIFY: execute the game and log data.
@@ -663,10 +663,10 @@ if __name__ == "__main__":
                 real_next_obs['expert_action'] = np.ones_like(obs['expert_action']) * np.nan # dummpy expert actions
             else:
                 obs['expert_action'] = real_next_obs['expert_action'] = np.ones_like(actions) * np.nan # dummpy expert actions
-            if envs.is_ms1_env:
-                rb.add(obs, real_next_obs, actions, rewards, dones, infos)
-            else:
-                rb.add(to_numpy_dirty(obs), to_numpy_dirty(real_next_obs), actions, rewards, dones, infos)
+            #if envs.is_ms1_env:
+            #    rb.add(obs, real_next_obs, actions, rewards, dones, infos)
+            #else:
+            rb.add(to_numpy_dirty(obs), to_numpy_dirty(real_next_obs), actions, rewards, dones, infos)
 
             # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
             obs = next_obs
@@ -707,13 +707,13 @@ if __name__ == "__main__":
 
                 qf1_a_values = qf1(data.observations["oracle_state"], data.actions).view(-1)
                 qf2_a_values = qf2(data.observations["oracle_state"], data.actions).view(-1)
-                qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
-                qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
-                qf_loss = qf1_loss + qf2_loss
+                # qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
+                # qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
+                # qf_loss = qf1_loss + qf2_loss
 
-                q_optimizer.zero_grad()
-                qf_loss.backward()
-                q_optimizer.step()
+                # q_optimizer.zero_grad()
+                # qf_loss.backward()
+                # q_optimizer.step()
 
                 # update the policy network
                 pi, log_pi, pi_mean = actor.get_action(data.observations)
@@ -757,9 +757,9 @@ if __name__ == "__main__":
             else:
                 writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
                 writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
-                writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
-                writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
-                writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
+                # writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
+                # writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
+                # writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
                 writer.add_scalar("losses/actor_loss", actor_rl_loss.item(), global_step)
                 writer.add_scalar("losses/alpha", alpha, global_step)
                 if args.autotune:
