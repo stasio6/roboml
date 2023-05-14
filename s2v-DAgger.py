@@ -94,15 +94,19 @@ from mani_skill2.vector.vec_env import VecEnvObservationWrapper
 from gym.core import Wrapper, ObservationWrapper
 from gym import spaces
 
-class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
+class MS2_RGBDStateVecEnvObsWrapper(VecEnvObservationWrapper):
     def __init__(self, env):
         super().__init__(env)
         assert self.obs_mode == 'rgbd'
         self.observation_space = self.build_obs_space(env)
+        example_oracle_state = self.venv.env_method('get_state_mode_obs')[0] # hack for AAC
+        self.observation_space['oracle_state'] = spaces.Box(-float("inf"), float("inf"), shape=example_oracle_state.shape, dtype=np.float32)
         self.concat_fn = partial(torch.cat, dim=-1)
 
     def observation(self, obs):
-        return self.convert_obs(obs, self.concat_fn)
+        obs = self.convert_obs(obs, self.concat_fn)
+        obs['oracle_state'] = np.vstack(self.venv.env_method('get_state_mode_obs')) # hack for AAC
+        return obs
     
     @staticmethod
     def build_obs_space(env, depth_dtype=np.float16):
@@ -117,10 +121,8 @@ class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
 
         return spaces.Dict({
             'state': spaces.Box(-float("inf"), float("inf"), shape=(state_dim,), dtype=np.float32),
-            'image': spaces.Dict({
-                'rgb': spaces.Box(0, 255, shape=(h,w,k*3), dtype=np.uint8),
-                'depth': spaces.Box(-float("inf"), float("inf"), shape=(h,w,k), dtype=depth_dtype),
-            })
+            'rgb': spaces.Box(0, 255, shape=(h,w,k*3), dtype=np.uint8),
+            'depth': spaces.Box(-float("inf"), float("inf"), shape=(h,w,k), dtype=depth_dtype),
         })
     # NOTE: We have to use float32 for gym AsyncVecEnv since it does not support float16, but we can use float16 for MS2 vec env
     
@@ -128,7 +130,7 @@ class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
     def convert_obs(obs, concat_fn):
         img_dict = obs['image']
         new_img_dict = {
-            key: concat_fn([v[key] for v in img_dict.values()]) # TODO: check if this follows the order of camera names
+            key: concat_fn([v[key] for v in img_dict.values()])
             for key in ['rgb', 'depth']
         }
         if isinstance(new_img_dict['depth'], torch.Tensor): # MS2 vec env uses float16, but gym AsyncVecEnv uses float32
@@ -137,23 +139,23 @@ class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
         states = [flatten_state_dict(obs["agent"])]
         if len(obs["extra"]) > 0:
             states.append(flatten_state_dict(obs["extra"]))
-        state = np.hstack(states)
+        new_img_dict['state'] = np.hstack(states)
 
-        out_dict = {
-            'image': new_img_dict,
-            'state': state,
-        }
-        return out_dict
+        return new_img_dict
 
 class MS2_RGBDObsWrapper(ObservationWrapper):
     def __init__(self, env):
         super().__init__(env)
         assert self.obs_mode == 'rgbd'
-        self.observation_space = MS2_RGBDVecEnvObsWrapper.build_obs_space(env, depth_dtype=np.float32)
+        self.observation_space = MS2_RGBDStateVecEnvObsWrapper.build_obs_space(env, depth_dtype=np.float32)
+        example_oracle_state = self.env.get_state_mode_obs() # hack for AAC
+        self.observation_space['oracle_state'] = spaces.Box(-float("inf"), float("inf"), shape=example_oracle_state.shape, dtype=np.float32)
         self.concat_fn = partial(np.concatenate, axis=-1)
 
     def observation(self, obs):
-        return MS2_RGBDVecEnvObsWrapper.convert_obs(obs, self.concat_fn)
+        obs = MS2_RGBDStateVecEnvObsWrapper.convert_obs(obs, self.concat_fn)
+        obs['oracle_state'] = self.env.get_state_mode_obs() # hack for AAC
+        return obs
 
 
 from mani_skill2.vector.wrappers.sb3 import select_index_from_dict
@@ -207,6 +209,7 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
     wrappers = [
         gym.wrappers.RecordEpisodeStatistics,
         gym.wrappers.ClipAction,
+        GetStateObsWrapper,
     ]
     if gym_vec_env:
         if video_dir:
@@ -222,12 +225,11 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
         # must use AsyncVectorEnv, so that the renderers will be in different processes
         envs = gym.vector.AsyncVectorEnv([make_single_env(seed + i) for i in range(num_envs)], context='forkserver')
     else:
-        wrappers.append(GetStateObsWrapper)
         envs = mani_skill2.vector.make(
             env_id, num_envs, obs_mode='rgbd', reward_mode=vec_env_reward_mode, control_mode=control_mode, wrappers=wrappers, camera_cfgs=cam_cfg,
         )
         envs.is_vector_env = True
-        envs = MS2_RGBDVecEnvObsWrapper(envs) # must be outside of ms2_vec_env, otherwise obs will be raw
+        envs = MS2_RGBDStateVecEnvObsWrapper(envs) # must be outside of ms2_vec_env, otherwise obs will be raw
         envs = AutoResetVecEnvWrapper(envs) # must be outside of ObsWrapper, otherwise info['terminal_obs'] will be raw obs
         envs.single_action_space = envs.action_space
         envs.single_observation_space = envs.observation_space
@@ -235,9 +237,6 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
     envs.is_ms1_env = 'Cabinet' in env_id or 'Bucket' in env_id or 'Chair' in env_id
 
     return envs
-
-def get_state_obs(envs):
-    return np.vstack(envs.env_method('get_state_mode_obs'))
 
 
 def make_mlp(in_channels, mlp_channels, act_builder=nn.ReLU, last_act=True):
@@ -333,7 +332,7 @@ class Agent(nn.Module):
         super().__init__()
         action_dim = np.prod(envs.single_action_space.shape)
         state_dim = envs.single_observation_space['state'].shape[0]
-        image_shape = envs.single_observation_space['image']['rgb'].shape
+        image_shape = envs.single_observation_space['rgb'].shape
         if image_shape[2] == 6: # ms2 envs
             self.encoder = PlainConv(in_channels=8, out_dim=256, max_pooling=False, inactivated_output=False, image_size=image_shape[0])
         else: # ms1 envs
@@ -343,8 +342,8 @@ class Agent(nn.Module):
 
     def get_feature(self, obs):
         # Preprocess the obs before passing to the real network, similar to the Dataset class in supervised learning
-        rgb = obs['image']['rgb'].float() / 255.0 # (B, H, W, 3*k)
-        depth = obs['image']['depth'].float() # (B, H, W, 1*k)
+        rgb = obs['rgb'].float() / 255.0 # (B, H, W, 3*k)
+        depth = obs['depth'].float() # (B, H, W, 1*k)
         img = torch.cat([rgb, depth], dim=3) # (B, H, W, C)
         img = img.permute(0, 3, 1, 2) # (B, C, H, W)
         feature = self.encoder(img)
@@ -558,10 +557,7 @@ if __name__ == "__main__":
 
     class DummyObject: pass
     dummy_env = DummyObject()
-    from mani_skill2.utils.common import convert_observation_to_space
-    example_expert_obs = envs.env_method('get_state_mode_obs')[0]
-    expert_obs_space = convert_observation_to_space(example_expert_obs)
-    dummy_env.single_observation_space = expert_obs_space
+    dummy_env.single_observation_space = envs.single_observation_space['oracle_state']
     dummy_env.single_action_space = envs.single_action_space
     
     for key in ['Agent', 'Actor', 'QNetwork']:
@@ -588,7 +584,6 @@ if __name__ == "__main__":
     # ALGO Logic: Storage setup
     # each obs is like {'image': {'rgb': (B,H,W,6), 'depth': (B,H,W,2)}, 'state': (B,D)}
     obs = DictArray((args.num_steps, args.num_envs), envs.single_observation_space, device)
-    expert_obs = torch.zeros((args.num_steps, args.num_envs) + expert_obs_space.shape).to(device)
     actions = torch.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape).to(device)
     rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
@@ -597,7 +592,6 @@ if __name__ == "__main__":
     start_time = time.time()
     global_step = 0
     next_obs = to_tensor(envs.reset(), device)
-    next_expert_obs = torch.Tensor(get_state_obs(envs)) # no need to move to GPU
     next_done = torch.zeros(args.num_envs).to(device)
     num_updates = int(np.ceil(args.total_timesteps / args.num_steps_per_collect))
     result = defaultdict(list)
@@ -611,7 +605,6 @@ if __name__ == "__main__":
         for step in range(0, args.num_steps):
             global_step += 1 * args.num_envs
             obs[step] = next_obs
-            expert_obs[step] = next_expert_obs
             dones[step] = next_done
 
             # ALGO LOGIC: action logic
@@ -624,7 +617,6 @@ if __name__ == "__main__":
             rewards[step] = torch.tensor(reward).to(device).view(-1)
 
             next_obs = to_tensor(next_obs, device)
-            next_expert_obs = torch.Tensor(get_state_obs(envs)) # no need to move to GPU
             next_done = torch.Tensor(done).to(device)
 
             result = collect_episode_info(info, result)
@@ -634,9 +626,8 @@ if __name__ == "__main__":
 
         # flatten the batch
         b_obs = obs.reshape((-1,))
-        b_expert_obs = expert_obs.reshape((-1,) + expert_obs_space.shape)
         # DAgger: save data to replay buffer
-        b_expert_actions = expert.get_eval_action(b_expert_obs).detach()
+        b_expert_actions = expert.get_eval_action(b_obs['oracle_state']).detach()
         dagger_buf.add(b_obs, b_expert_actions)
 
         if global_step < args.learning_starts:
