@@ -69,7 +69,7 @@ def parse_args():
     parser.add_argument("--num-eval-episodes", type=int, default=10)
     parser.add_argument("--num-eval-envs", type=int, default=1)
     parser.add_argument("--log-freq", type=int, default=1000)
-    parser.add_argument("--save-freq", type=int, default=500_000)
+    parser.add_argument("--save-freq", type=int, default=50_000)
     parser.add_argument("--control-mode", type=str, default='pd_ee_delta_pos')
     parser.add_argument("--expert-ckpt", type=str, default='output/PickCube-v1/SAC-ms2-new/230329-142137_1_profile/checkpoints/600000.pt')
     parser.add_argument("--image-size", type=int, default=None,
@@ -84,7 +84,6 @@ def parse_args():
     args.num_updates_per_collect = int(args.num_steps_per_collect / args.num_steps_per_update)
     args.num_eval_envs = min(args.num_eval_envs, args.num_eval_episodes)
     assert args.num_eval_episodes % args.num_eval_envs == 0
-    # assert args.env_id in args.expert_ckpt, 'Expert checkpoint should be trained on the same env'
     # fmt: on
     return args
 
@@ -112,7 +111,8 @@ class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
         for k in ['agent', 'extra']:
             state_dim += sum([v.shape[0] for v in flatten_dict_space_keys(obs_space[k]).spaces.values()])
 
-        h, w, _ = env.observation_space['image']['hand_camera']['rgb'].shape
+        single_img_space = list(env.observation_space['image'].values())[0]
+        h, w, _ = single_img_space['rgb'].shape
         k = len(env.observation_space['image'])
 
         return spaces.Dict({
@@ -128,7 +128,7 @@ class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
     def convert_obs(obs, concat_fn):
         img_dict = obs['image']
         new_img_dict = {
-            key: concat_fn([v[key] for v in img_dict.values()])
+            key: concat_fn([v[key] for v in img_dict.values()]) # TODO: check if this follows the order of camera names
             for key in ['rgb', 'depth']
         }
         if isinstance(new_img_dict['depth'], torch.Tensor): # MS2 vec env uses float16, but gym AsyncVecEnv uses float32
@@ -191,6 +191,19 @@ def seed_env(env, seed):
 def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, video_dir=None, gym_vec_env=False):
     assert gym_vec_env or video_dir is None, 'Saving video is only supported for gym vec env'
     cam_cfg = {'width': image_size, 'height': image_size} if image_size else None
+    vec_env_reward_mode = 'dense'
+    if 'Cabinet' in env_id or 'Bucket' in env_id or 'Chair' in env_id:
+        cam_cfg = {'width': 125, 'height': 50}
+        # print('Attention!!!!!!!: You are using MS1 envs, please read the comment to select the correct mode')
+        # print('If you are not sure, ask Tongzhou')
+        # print('press enter to continue (but make sure you have read the comment!!!!!!)')
+        # aa = input() # You can comment out these lines after you making the correct choice
+        # select ONE of the following two lines
+        # gym_vec_env = True;  # NOTE: if you are running RL or anything needs demo data
+        vec_env_reward_mode = 'sparse' # NOTE: if you are running pure DAgger, no RL, no demo data
+        # everything in this block is ONLY for MS1 envs, you do not need to change anything for MS2 envs
+        if 'Door_unified' in env_id:
+            gym_vec_env = True 
     wrappers = [
         gym.wrappers.RecordEpisodeStatistics,
         gym.wrappers.ClipAction,
@@ -211,7 +224,7 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
     else:
         wrappers.append(GetStateObsWrapper)
         envs = mani_skill2.vector.make(
-            env_id, num_envs, obs_mode='rgbd', reward_mode='dense', control_mode=control_mode, wrappers=wrappers, camera_cfgs=cam_cfg,
+            env_id, num_envs, obs_mode='rgbd', reward_mode=vec_env_reward_mode, control_mode=control_mode, wrappers=wrappers, camera_cfgs=cam_cfg,
         )
         envs.is_vector_env = True
         envs = MS2_RGBDVecEnvObsWrapper(envs) # must be outside of ms2_vec_env, otherwise obs will be raw
@@ -219,6 +232,7 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
         envs.single_action_space = envs.action_space
         envs.single_observation_space = envs.observation_space
         seed_env(envs, seed)
+    envs.is_ms1_env = 'Cabinet' in env_id or 'Bucket' in env_id or 'Chair' in env_id
 
     return envs
 
@@ -285,13 +299,45 @@ class PlainConv(nn.Module):
         return x
 
 
+class PlainConv3(PlainConv): # for 50x125 image
+    def __init__(self,
+                 in_channels=3,
+                 out_dim=256,
+                 max_pooling=False,
+                 inactivated_output=False, # False for ConvBody, True for CNN
+                 ):
+        nn.Module.__init__(self)
+        self.out_dim = out_dim
+        self.cnn = nn.Sequential(
+            nn.Conv2d(in_channels, 16, 3, padding=1, bias=True), nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),  # [25, 62]
+            nn.Conv2d(16, 16, 3, padding=1, bias=True), nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),  # [12, 31]
+            nn.Conv2d(16, 32, 3, padding=1, bias=True), nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),  # [6, 15]
+            nn.Conv2d(32, 64, 3, padding=1, bias=True), nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),  # [3, 7]
+            nn.Conv2d(64, 128, 3, padding=1, bias=True), nn.ReLU(inplace=True),
+        )
+        if max_pooling:
+            self.pool = nn.AdaptiveMaxPool2d((1, 1))
+            self.fc = make_mlp(128, [out_dim], last_act=not inactivated_output)
+        else:
+            self.pool = None
+            self.fc = make_mlp(128 * 3 * 7, [out_dim], last_act=not inactivated_output)
+
+        self.reset_parameters()
+
 class Agent(nn.Module):
     def __init__(self, envs):
         super().__init__()
         action_dim = np.prod(envs.single_action_space.shape)
         state_dim = envs.single_observation_space['state'].shape[0]
-        image_size = envs.single_observation_space['image']['rgb'].shape[0]
-        self.encoder = PlainConv(in_channels=8, out_dim=256, max_pooling=False, inactivated_output=False, image_size=image_size)
+        image_shape = envs.single_observation_space['image']['rgb'].shape
+        if image_shape[2] == 6: # ms2 envs
+            self.encoder = PlainConv(in_channels=8, out_dim=256, max_pooling=False, inactivated_output=False, image_size=image_shape[0])
+        else: # ms1 envs
+            self.encoder = PlainConv3(in_channels=12, out_dim=256, max_pooling=False, inactivated_output=False)
         self.actor = make_mlp(256+state_dim, [512, 256, action_dim], last_act=False)
         self.get_eval_action = self.get_action = self.forward
 
@@ -427,6 +473,7 @@ def collect_episode_info(info, result=None):
 
 def evaluate(n, agent, eval_envs, device):
     print('======= Evaluation Starts =========')
+    agent.eval()
     result = defaultdict(list)
     obs = eval_envs.reset()
     while len(result['return']) < n:
@@ -491,8 +538,6 @@ if __name__ == "__main__":
     eval_envs = make_vec_env(args.env_id, args.num_eval_envs, args.seed+1000, args.control_mode, args.image_size,
                              video_dir=f'{log_path}/videos' if args.capture_video else None, gym_vec_env=True)
     envs = make_vec_env(args.env_id, args.num_envs, args.seed, args.control_mode, args.image_size)
-    # if args.rew_norm:
-    #     envs = gym.wrappers.NormalizeReward(envs, args.gamma)
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
     print(envs.single_action_space)
     print(envs.single_observation_space)
@@ -504,6 +549,7 @@ if __name__ == "__main__":
     # expert setup
     from os.path import dirname as up
     args.expert_ckpt = 'checkpoints/' + args.env_id + '/checkpoints/' + args.env_id + ".pt"
+    assert args.env_id in args.expert_ckpt, 'Expert checkpoint should be trained on the same env'
     expert_dir = up(up(args.expert_ckpt))
     import json
     with open(f'{expert_dir}/args.json', 'r') as f:
@@ -609,9 +655,10 @@ if __name__ == "__main__":
             optimizer.step()
             _loss = loss.item()
 
-            print('i_update:', i_update,'loss:', _loss)
+            # print('i_update:', i_update,'loss:', _loss)
             if args.bc_loss_th is not None and _loss < args.bc_loss_th:
                 break
+        print('final loss:', _loss)
 
         training_time += time.time() - tic
 
