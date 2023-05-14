@@ -139,7 +139,8 @@ class MS2_RGBDStateVecEnvObsWrapper(VecEnvObservationWrapper):
         for k in ['agent', 'extra']:
             state_dim += sum([v.shape[0] for v in flatten_dict_space_keys(obs_space[k]).spaces.values()])
 
-        h, w, _ = env.observation_space['image']['hand_camera']['rgb'].shape
+        single_img_space = list(env.observation_space['image'].values())[0]
+        h, w, _ = single_img_space['rgb'].shape
         k = len(env.observation_space['image'])
 
         return spaces.Dict({
@@ -159,11 +160,10 @@ class MS2_RGBDStateVecEnvObsWrapper(VecEnvObservationWrapper):
         if isinstance(new_img_dict['depth'], torch.Tensor): # MS2 vec env uses float16, but gym AsyncVecEnv uses float32
             new_img_dict['depth'] = new_img_dict['depth'].to(torch.float16)
 
-        state = np.hstack([
-            flatten_state_dict(obs["agent"]),
-            flatten_state_dict(obs["extra"]),
-        ])
-        new_img_dict['state'] = state
+        states = [flatten_state_dict(obs["agent"])]
+        if len(obs["extra"]) > 0:
+            states.append(flatten_state_dict(obs["extra"]))
+        new_img_dict['state'] = np.hstack(states)
 
         return new_img_dict
 
@@ -172,10 +172,14 @@ class MS2_RGBDObsWrapper(ObservationWrapper):
         super().__init__(env)
         assert self.obs_mode == 'rgbd'
         self.observation_space = MS2_RGBDStateVecEnvObsWrapper.build_obs_space(env, depth_dtype=np.float32)
+        example_oracle_state = self.env.get_state_mode_obs() # hack for AAC
+        self.observation_space['oracle_state'] = spaces.Box(-float("inf"), float("inf"), shape=example_oracle_state.shape, dtype=np.float32)
         self.concat_fn = partial(np.concatenate, axis=-1)
 
     def observation(self, obs):
-        return MS2_RGBDStateVecEnvObsWrapper.convert_obs(obs, self.concat_fn)
+        obs = MS2_RGBDStateVecEnvObsWrapper.convert_obs(obs, self.concat_fn)
+        obs['oracle_state'] = self.env.get_state_mode_obs() # hack for AAC
+        return obs
 
 
 from mani_skill2.vector.wrappers.sb3 import select_index_from_dict
@@ -213,9 +217,23 @@ def seed_env(env, seed):
 def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, video_dir=None, gym_vec_env=False):
     assert gym_vec_env or video_dir is None, 'Saving video is only supported for gym vec env'
     cam_cfg = {'width': image_size, 'height': image_size} if image_size else None
+    vec_env_reward_mode = 'dense'
+    if 'Cabinet' in env_id or 'Bucket' in env_id or 'Chair' in env_id:
+        cam_cfg = {'width': 125, 'height': 50}
+        # print('Attention!!!!!!!: You are using MS1 envs, please read the comment to select the correct mode')
+        # print('If you are not sure, ask Tongzhou')
+        # print('press enter to continue (but make sure you have read the comment!!!!!!)')
+        # aa = input() # You can comment out these lines after you making the correct choice
+        # select ONE of the following two lines
+        gym_vec_env = True;  # NOTE: if you are running RL or anything needs demo data
+        # vec_env_reward_mode = 'sparse' # NOTE: if you are running pure DAgger, no RL, no demo data
+        # everything in this block is ONLY for MS1 envs, you do not need to change anything for MS2 envs
+        if 'Door_unified' in env_id:
+            gym_vec_env = True 
     wrappers = [
         gym.wrappers.RecordEpisodeStatistics,
         gym.wrappers.ClipAction,
+        GetStateObsWrapper,
     ]
     if gym_vec_env:
         if video_dir:
@@ -231,9 +249,8 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
         # must use AsyncVectorEnv, so that the renderers will be in different processes
         envs = gym.vector.AsyncVectorEnv([make_single_env(seed + i) for i in range(num_envs)], context='forkserver')
     else:
-        wrappers.append(GetStateObsWrapper)
         envs = mani_skill2.vector.make(
-            env_id, num_envs, obs_mode='rgbd', reward_mode='dense', control_mode=control_mode, wrappers=wrappers, camera_cfgs=cam_cfg,
+            env_id, num_envs, obs_mode='rgbd', reward_mode=vec_env_reward_mode, control_mode=control_mode, wrappers=wrappers, camera_cfgs=cam_cfg,
         )
         envs.is_vector_env = True
         envs = MS2_RGBDStateVecEnvObsWrapper(envs) # must be outside of ms2_vec_env, otherwise obs will be raw
@@ -241,6 +258,7 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
         envs.single_action_space = envs.action_space
         envs.single_observation_space = envs.observation_space
         seed_env(envs, seed)
+    envs.is_ms1_env = 'Cabinet' in env_id or 'Bucket' in env_id or 'Chair' in env_id
 
     return envs
 
@@ -302,6 +320,35 @@ class PlainConv(nn.Module):
         x = self.fc(x)
         return x
 
+class PlainConv3(PlainConv): # for 50x125 image
+    def __init__(self,
+                 in_channels=3,
+                 out_dim=256,
+                 max_pooling=False,
+                 inactivated_output=False, # False for ConvBody, True for CNN
+                 ):
+        nn.Module.__init__(self)
+        self.out_dim = out_dim
+        self.cnn = nn.Sequential(
+            nn.Conv2d(in_channels, 16, 3, padding=1, bias=True), nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),  # [25, 62]
+            nn.Conv2d(16, 16, 3, padding=1, bias=True), nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),  # [12, 31]
+            nn.Conv2d(16, 32, 3, padding=1, bias=True), nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),  # [6, 15]
+            nn.Conv2d(32, 64, 3, padding=1, bias=True), nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),  # [3, 7]
+            nn.Conv2d(64, 128, 3, padding=1, bias=True), nn.ReLU(inplace=True),
+        )
+        if max_pooling:
+            self.pool = nn.AdaptiveMaxPool2d((1, 1))
+            self.fc = make_mlp(128, [out_dim], last_act=not inactivated_output)
+        else:
+            self.pool = None
+            self.fc = make_mlp(128 * 3 * 7, [out_dim], last_act=not inactivated_output)
+
+        self.reset_parameters()
+
 # ALGO LOGIC: initialize agent here:
 class SoftQNetwork(nn.Module):
     def __init__(self, env):
@@ -330,8 +377,11 @@ class Actor(nn.Module):
         super().__init__()
         action_dim = np.prod(envs.single_action_space.shape)
         state_dim = envs.single_observation_space['state'].shape[0]
-        image_size = envs.single_observation_space['rgb'].shape[0]
-        self.encoder = PlainConv(in_channels=8, out_dim=256, max_pooling=False, inactivated_output=False, image_size=image_size)
+        image_shape = envs.single_observation_space['rgb'].shape
+        if image_shape[2] == 6: # ms2 envs
+            self.encoder = PlainConv(in_channels=8, out_dim=256, max_pooling=False, inactivated_output=False, image_size=image_shape[0])
+        else: # ms1 envs
+            self.encoder = PlainConv3(in_channels=12, out_dim=256, max_pooling=False, inactivated_output=False)
         self.mlp = make_mlp(256+state_dim, [512, 256], last_act=True)
         self.fc_mean = nn.Linear(256, action_dim)
         self.fc_logstd = nn.Linear(256, action_dim)
@@ -381,15 +431,6 @@ class Actor(nn.Module):
         self.action_scale = self.action_scale.to(device)
         self.action_bias = self.action_bias.to(device)
         return super().to(device)
-
-def to_numpy_dirty(x):
-    return { # we do not change dtype here
-        'rgb': x['rgb'].cpu().numpy(),
-        'depth': x['depth'].cpu().numpy(),
-        'state': x['state'],
-        'oracle_state': x['oracle_state'],
-        'expert_action': x['expert_action'],
-    }
 
 def to_tensor(x, device):
     if isinstance(x, dict):
@@ -494,6 +535,7 @@ if __name__ == "__main__":
     # expert setup
     from os.path import dirname as up
     args.expert_ckpt = 'checkpoints/' + args.env_id + '/checkpoints/' + args.env_id + ".pt"
+    assert args.env_id in args.expert_ckpt, 'Expert checkpoint should be trained on the same env'
     expert_dir = up(up(args.expert_ckpt))
     import json
     with open(f'{expert_dir}/args.json', 'r') as f:
@@ -591,7 +633,7 @@ if __name__ == "__main__":
             # expert actions
             obs['expert_action'] = expert.get_eval_action(torch.Tensor(obs['oracle_state']).to(device)).detach().cpu().numpy()
             real_next_obs['expert_action'] = np.ones_like(obs['expert_action']) * np.nan # dummpy expert actions
-            rb.add(to_numpy_dirty(obs), to_numpy_dirty(real_next_obs), actions, rewards, dones, infos)
+            rb.add(obs, real_next_obs, actions, rewards, dones, infos)
 
             # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
             obs = next_obs
