@@ -134,10 +134,10 @@ class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
         if isinstance(new_img_dict['depth'], torch.Tensor): # MS2 vec env uses float16, but gym AsyncVecEnv uses float32
             new_img_dict['depth'] = new_img_dict['depth'].to(torch.float16)
 
-        state = np.hstack([
-            flatten_state_dict(obs["agent"]),
-            flatten_state_dict(obs["extra"]),
-        ])
+        states = [flatten_state_dict(obs["agent"])]
+        if len(obs["extra"]) > 0:
+            states.append(flatten_state_dict(obs["extra"]))
+        state = np.hstack(states)
 
         out_dict = {
             'image': new_img_dict,
