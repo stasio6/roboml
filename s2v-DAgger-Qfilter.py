@@ -432,6 +432,15 @@ class Actor(nn.Module):
         self.action_bias = self.action_bias.to(device)
         return super().to(device)
 
+def to_numpy_dirty(x):
+    return { # we do not change dtype here
+        'rgb': x['rgb'].cpu().numpy(),
+        'depth': x['depth'].cpu().numpy(),
+        'state': x['state'],
+        'oracle_state': x['oracle_state'],
+        'expert_action': x['expert_action'],
+    }
+
 def to_tensor(x, device):
     if isinstance(x, dict):
         return {k: to_tensor(v, device) for k, v in x.items()}
@@ -633,7 +642,10 @@ if __name__ == "__main__":
             # expert actions
             obs['expert_action'] = expert.get_eval_action(torch.Tensor(obs['oracle_state']).to(device)).detach().cpu().numpy()
             real_next_obs['expert_action'] = np.ones_like(obs['expert_action']) * np.nan # dummpy expert actions
-            rb.add(obs, real_next_obs, actions, rewards, dones, infos)
+            if envs.is_ms1_env:
+                rb.add(obs, real_next_obs, actions, rewards, dones, infos)
+            else:
+                rb.add(to_numpy_dirty(obs), to_numpy_dirty(real_next_obs), actions, rewards, dones, infos)
 
             # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
             obs = next_obs
