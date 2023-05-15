@@ -225,8 +225,8 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
         # print('press enter to continue (but make sure you have read the comment!!!!!!)')
         # aa = input() # You can comment out these lines after you making the correct choice
         # select ONE of the following two lines
-        gym_vec_env = True;  # NOTE: if you are running RL or anything needs demo data
-        # vec_env_reward_mode = 'sparse' # NOTE: if you are running pure DAgger, no RL, no demo data
+        # gym_vec_env = True;  # NOTE: if you are running RL or anything needs demo data
+        vec_env_reward_mode = 'sparse' # NOTE: if you are running pure DAgger, no RL, no demo data
         # everything in this block is ONLY for MS1 envs, you do not need to change anything for MS2 envs
         if 'Door_unified' in env_id:
             gym_vec_env = True 
@@ -642,10 +642,10 @@ if __name__ == "__main__":
             # expert actions
             obs['expert_action'] = expert.get_eval_action(torch.Tensor(obs['oracle_state']).to(device)).detach().cpu().numpy()
             real_next_obs['expert_action'] = np.ones_like(obs['expert_action']) * np.nan # dummpy expert actions
-            if envs.is_ms1_env:
-                rb.add(obs, real_next_obs, actions, rewards, dones, infos)
-            else:
-                rb.add(to_numpy_dirty(obs), to_numpy_dirty(real_next_obs), actions, rewards, dones, infos)
+            # if envs.is_ms1_env:
+            #     rb.add(obs, real_next_obs, actions, rewards, dones, infos)
+            # else:
+            rb.add(to_numpy_dirty(obs), to_numpy_dirty(real_next_obs), actions, rewards, dones, infos)
 
             # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
             obs = next_obs
@@ -682,9 +682,10 @@ if __name__ == "__main__":
                 qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
                 qf_loss = qf1_loss + qf2_loss
 
-                q_optimizer.zero_grad()
-                qf_loss.backward()
-                q_optimizer.step()
+                if not envs.is_ms1_env:
+                    q_optimizer.zero_grad()
+                    qf_loss.backward()
+                    q_optimizer.step()
 
                 # update the policy network (SAC + DAgger)
                 pi, log_pi, pi_mean = actor.get_action(data.observations)

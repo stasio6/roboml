@@ -707,13 +707,14 @@ if __name__ == "__main__":
 
                 qf1_a_values = qf1(data.observations["oracle_state"], data.actions).view(-1)
                 qf2_a_values = qf2(data.observations["oracle_state"], data.actions).view(-1)
-                # qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
-                # qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
-                # qf_loss = qf1_loss + qf2_loss
+                qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
+                qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
+                qf_loss = qf1_loss + qf2_loss
 
-                # q_optimizer.zero_grad()
-                # qf_loss.backward()
-                # q_optimizer.step()
+                if not envs.is_ms1_env:
+                    q_optimizer.zero_grad()
+                    qf_loss.backward()
+                    q_optimizer.step()
 
                 # update the policy network
                 pi, log_pi, pi_mean = actor.get_action(data.observations)
