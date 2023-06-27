@@ -365,12 +365,13 @@ class SoftQNetwork(nn.Module):
         x = torch.cat([x, a], 1)
         return self.net(x)
 
-class RunningAverage():
+class RunningAverage:
     def __init__(self):
         self.average = 0
         self.times = 0
 
-    def add_and_normalize(self, val):
+    def add_and_normalize(self, val_tensor):
+        val = val_tensor.detach().cpu().numpy()
         self.average = self.average * self.times + val
         self.times += 1
         self.average /= self.times
@@ -619,6 +620,7 @@ if __name__ == "__main__":
     collect_time = training_time = eval_time = 0
 
     start_time = time.time()
+    runningAverage = RunningAverage()
     while global_step < args.total_timesteps:
 
         # Collect samples from environemnts
@@ -665,7 +667,6 @@ if __name__ == "__main__":
 
         learning_has_started = True
         adv = 0; advR = 0
-        runningAverage = RunningAverage()
         tic = time.time()
         for local_update in range(num_updates_per_training):
             global_update += 1
@@ -716,7 +717,7 @@ if __name__ == "__main__":
 
             imitation_loss = F.mse_loss(pi_mean, data.observations['expert_action'])
             actor_rl_loss = ((alpha * log_pi) - min_qf_pi).mean()
-            print(imitation_loss);print(actor_rl_loss);print(a, lam)
+            # print(imitation_loss);print(actor_rl_loss);print(a, lam)
             balancing_coeff = (a / (1 + lam))
             actor_total_loss = actor_rl_loss + balancing_coeff * imitation_loss
 
@@ -746,7 +747,7 @@ if __name__ == "__main__":
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
 
         diff = (adv - advR) / num_updates_per_training
-        lam = (lam - gradient_descent_coef * runningAverage.add_and_normalize(diff)).detach()
+        lam = (lam - gradient_descent_coef * runningAverage.add_and_normalize(diff))
         training_time += time.time() - tic
         print('global step:', global_step, 'imitation_loss:', imitation_loss.item())
 
