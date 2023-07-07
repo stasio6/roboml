@@ -442,6 +442,46 @@ class Actor(nn.Module):
         self.action_bias = self.action_bias.to(device)
         return super().to(device)
 
+class QNetwork:
+    def __init__(self, envs):
+        self.qf1 = SoftQNetwork(envs).to(device)
+        self.qf2 = SoftQNetwork(envs).to(device)
+        self.qf1_target = SoftQNetwork(envs).to(device)
+        self.qf2_target = SoftQNetwork(envs).to(device)
+        self.q_optimizer = optim.Adam(list(self.qf1.parameters()) + list(self.qf2.parameters()), lr=args.q_lr)
+
+    def step(self, actor, data):
+        with torch.no_grad():
+            next_state_actions, next_state_log_pi, _ = actor.get_action(data.next_observations)
+            qf1_next_target = self.qf1_target(data.next_observations["oracle_state"], next_state_actions)
+            qf2_next_target = self.qf2_target(data.next_observations["oracle_state"], next_state_actions)
+            min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
+            if args.value_always_bootstrap:
+                next_q_value = data.rewards.flatten() + args.gamma * (min_qf_next_target).view(-1)
+            else:
+                next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (min_qf_next_target).view(-1)
+
+        qf1_a_values = self.qf1(data.observations["oracle_state"], data.actions).view(-1)
+        qf2_a_values = self.qf2(data.observations["oracle_state"], data.actions).view(-1)
+        qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
+        qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
+        qf_loss = qf1_loss + qf2_loss
+        self.q_optimizer.zero_grad()
+        qf_loss.backward()
+        self.q_optimizer.step()
+
+    def action_values(self, observations, actions):
+        qf1_rb_val = self.qf1(observations, actions)
+        qf2_rb_val = self.qf2(observations, actions)
+        return torch.min(qf1_rb_val, qf2_rb_val).view(-1)
+
+    def update_target(self, tau):
+        for param, target_param in zip(self.qf1.parameters(), self.qf1_target.parameters()):
+            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+        for param, target_param in zip(self.qf2.parameters(), self.qf2_target.parameters()):
+            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+
 def to_numpy_dirty(x):
     return { # we do not change dtype here
         'rgb': x['rgb'].cpu().numpy(),
@@ -449,6 +489,7 @@ def to_numpy_dirty(x):
         'state': x['state'],
         'oracle_state': x['oracle_state'],
         'expert_action': x['expert_action'],
+        'steps_elapsed': x['steps_elapsed'],
     }
 
 def to_tensor(x, device):
@@ -578,11 +619,8 @@ if __name__ == "__main__":
             expert.load_state_dict(checkpoint[key])
             break
     torch.autograd.set_detect_anomaly(True)
-    qf1 = SoftQNetwork(envs).to(device)
-    qf2 = SoftQNetwork(envs).to(device)
-    qf1_target = SoftQNetwork(envs).to(device)
-    qf2_target = SoftQNetwork(envs).to(device)
-    q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
+    q = QNetwork(envs)
+    qR = QNetwork(envs)
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
     actorR_optimizer = optim.Adam(list(actorR.parameters()), lr=args.policy_lr)
     lam = args.init_lambda
@@ -600,6 +638,7 @@ if __name__ == "__main__":
 
     envs.single_observation_space.dtype = np.float32
     envs.single_observation_space['expert_action'] = envs.single_action_space
+    envs.single_observation_space['steps_elapsed'] = spaces.Box(0, 100000, (1,), dtype=np.int16)
     rb = DictReplayBuffer(
         args.buffer_size,
         envs.single_observation_space,
@@ -651,7 +690,9 @@ if __name__ == "__main__":
                             real_next_obs[key][idx] = t_obs[key]
                 # expert actions
                 obs['expert_action'] = expert.get_eval_action(torch.Tensor(obs['oracle_state']).to(device)).detach().cpu().numpy()
+                obs['steps_elapsed'] = np.array([info['elapsed_steps'] for info in infos]).reshape(-1, 1)
                 real_next_obs['expert_action'] = np.ones_like(obs['expert_action']) * np.nan # dummpy expert actions
+                real_next_obs['steps_elapsed'] = np.array([info['elapsed_steps'] for info in infos]).reshape(-1, 1)
                 # if envs.is_ms1_env:
                 #     rb.add(obs, real_next_obs, actions, rewards, dones, infos)
                 # else:
@@ -673,35 +714,12 @@ if __name__ == "__main__":
             data = rb.sample(args.batch_size)
 
             # update the value networks
-            with torch.no_grad():
-                next_state_actions, next_state_log_pi, _ = actor.get_action(data.next_observations)
-                qf1_next_target = qf1_target(data.next_observations["oracle_state"], next_state_actions)
-                qf2_next_target = qf2_target(data.next_observations["oracle_state"], next_state_actions)
-                min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
-                if args.value_always_bootstrap:
-                    next_q_value = data.rewards.flatten() + args.gamma * (min_qf_next_target).view(-1)
-                else:
-                    next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (min_qf_next_target).view(-1)
-
-            qf1_a_values = qf1(data.observations["oracle_state"], data.actions).view(-1)
-            qf2_a_values = qf2(data.observations["oracle_state"], data.actions).view(-1)
-            qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
-            qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
-            qf_loss = qf1_loss + qf2_loss
-            q_optimizer.zero_grad()
-            qf_loss.backward()
-            q_optimizer.step()
-
-            # Get replay buffer action values
-            qf1_rb_val = qf1(data.observations["oracle_state"], data.actions)
-            qf2_rb_val = qf2(data.observations["oracle_state"], data.actions)
-            min_rb_val = torch.min(qf1_rb_val, qf2_rb_val).view(-1)
+            q.step(actor, data)
+            qR.step(actorR, data)
 
             # update the baseline network (SAC)
             piR, log_piR, _ = actorR.get_action(data.observations)
-            qf1_piR = qf1(data.observations["oracle_state"], piR)
-            qf2_piR = qf2(data.observations["oracle_state"], piR)
-            min_qf_piR = torch.min(qf1_piR, qf2_piR).view(-1)
+            min_qf_piR = qR.action_values(data.observations["oracle_state"], piR)
 
             actorR_rl_loss = ((alpha * log_piR) - min_qf_piR).mean()
 
@@ -711,9 +729,7 @@ if __name__ == "__main__":
 
             # Update the policy network (SAC + DAgger)
             pi, log_pi, pi_mean = actor.get_action(data.observations)
-            qf1_pi = qf1(data.observations["oracle_state"], pi)
-            qf2_pi = qf2(data.observations["oracle_state"], pi)
-            min_qf_pi = torch.min(qf1_pi, qf2_pi).view(-1)
+            min_qf_pi = q.action_values(data.observations["oracle_state"], pi)
 
             imitation_loss = F.mse_loss(pi_mean, data.observations['expert_action'])
             actor_rl_loss = ((alpha * log_pi) - min_qf_pi).mean()
@@ -726,8 +742,8 @@ if __name__ == "__main__":
             actor_optimizer.step()
 
             # Updating advantage value
-            adv += (min_rb_val - min_qf_pi).mean()
-            advR += (min_rb_val - min_qf_piR).mean()
+            adv += ((q.action_values(data.observations["oracle_state"], data.actions) - min_qf_pi)*(args.gamma**data.observations['steps_elapsed'])).mean()
+            advR += ((qR.action_values(data.observations["oracle_state"], data.actions) - min_qf_piR)*(args.gamma**data.observations['steps_elapsed'])).mean()
 
             if args.autotune:
                 with torch.no_grad():
@@ -741,13 +757,11 @@ if __name__ == "__main__":
 
             # update the target networks
             if global_update % args.target_network_frequency == 0:
-                for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):
-                    target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-                for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
-                    target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
+                q.update_target(args.tau)
+                qR.update_target(args.tau)
 
         diff = (adv - advR) / num_updates_per_training
-        lam = (lam - gradient_descent_coef * runningAverage.add_and_normalize(diff))
+        lam = max(lam - gradient_descent_coef * runningAverage.add_and_normalize(diff), 0)
         training_time += time.time() - tic
         print('global step:', global_step, 'imitation_loss:', imitation_loss.item())
 
@@ -757,11 +771,11 @@ if __name__ == "__main__":
                 for k, v in result.items():
                     writer.add_scalar(f"train/{k}", np.mean(v), global_step)
                 result = defaultdict(list)
-            writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
-            writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
-            writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
-            writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
-            writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
+            # writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
+            # writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
+            # writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
+            # writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
+            # writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
             writer.add_scalar("losses/actor_rl_loss", actor_rl_loss.item(), global_step)
             writer.add_scalar("losses/alpha", alpha, global_step)
             writer.add_scalar("losses/actor_total_loss", actor_total_loss.item(), global_step)
@@ -794,8 +808,8 @@ if __name__ == "__main__":
             os.makedirs(f'{log_path}/checkpoints', exist_ok=True)
             torch.save({
                 'actor': actor.state_dict(), # does NOT include action_scale
-                'qf1': qf1_target.state_dict(),
-                'qf2': qf2_target.state_dict(),
+                # 'qf1': qf1_target.state_dict(),
+                # 'qf2': qf2_target.state_dict(),
             }, f'{log_path}/checkpoints/{global_step}.pt')
 
     envs.close()
