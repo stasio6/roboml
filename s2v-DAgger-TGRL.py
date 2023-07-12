@@ -5,6 +5,7 @@ import os
 import argparse
 import random
 import time
+import collections
 from distutils.util import strtobool
 
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -371,7 +372,7 @@ class RunningAverage:
         self.times = 0
 
     def add_and_normalize(self, val_tensor):
-        val = val_tensor.detach().cpu().numpy()
+        val = val_tensor
         self.average = self.average * self.times + val
         self.times += 1
         self.average /= self.times
@@ -626,6 +627,8 @@ if __name__ == "__main__":
     lam = args.init_lambda
     gradient_descent_coef = args.gradient_descent_coef
     a = args.tgrl_alpha
+    actor_performance = collections.deque(100 * [0], 100)
+    actorR_performance = collections.deque(100*[0], 100)
 
     # Automatic entropy tuning
     if args.autotune:
@@ -680,6 +683,12 @@ if __name__ == "__main__":
 
                 # TRY NOT TO MODIFY: record rewards for plotting purposes
                 result = collect_episode_info(infos, result)
+                for info in infos:
+                    if "episode" in info.keys():
+                        if used_actor is actor:
+                            actor_performance.appendleft(info["episode"]["r"])
+                        else:
+                            actorR_performance.appendleft(info["episode"]["r"])
 
                 # TRY NOT TO MODIFY: save data to reply buffer; handle `terminal_observation`
                 real_next_obs = {k:v.copy() if isinstance(v, np.ndarray) else v.clone() for k,v in next_obs.items()}
@@ -741,10 +750,6 @@ if __name__ == "__main__":
             actor_total_loss.backward()
             actor_optimizer.step()
 
-            # Updating advantage value
-            adv += ((q.action_values(data.observations["oracle_state"], data.actions) - min_qf_pi)*(args.gamma**data.observations['steps_elapsed'])).mean()
-            advR += ((qR.action_values(data.observations["oracle_state"], data.actions) - min_qf_piR)*(args.gamma**data.observations['steps_elapsed'])).mean()
-
             if args.autotune:
                 with torch.no_grad():
                     _, log_pi, _ = actor.get_action(data.observations)
@@ -760,7 +765,7 @@ if __name__ == "__main__":
                 q.update_target(args.tau)
                 qR.update_target(args.tau)
 
-        diff = (adv - advR) / num_updates_per_training
+        diff = (np.mean(actor_performance) - np.mean(actorR_performance)) / num_updates_per_training
         lam = max(lam - gradient_descent_coef * runningAverage.add_and_normalize(diff), 0)
         training_time += time.time() - tic
         print('global step:', global_step, 'imitation_loss:', imitation_loss.item())
@@ -781,7 +786,7 @@ if __name__ == "__main__":
             writer.add_scalar("losses/actor_total_loss", actor_total_loss.item(), global_step)
             writer.add_scalar("losses/imitation_loss", imitation_loss.item(), global_step)
             writer.add_scalar("losses/lambda", lam, global_step)
-            writer.add_scalar("losses/advantage_diff", diff.detach(), global_step)
+            writer.add_scalar("losses/advantage_diff", diff, global_step)
             
             # print("SPS:", int(global_step / (time.time() - start_time)))
             tot_time = time.time() - start_time
