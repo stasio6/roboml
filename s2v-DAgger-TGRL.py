@@ -743,7 +743,8 @@ if __name__ == "__main__":
             imitation_loss = F.mse_loss(pi_mean, data.observations['expert_action'])
             actor_rl_loss = ((alpha * log_pi) - min_qf_pi).mean()
             # print(imitation_loss);print(actor_rl_loss);print(a, lam)
-            balancing_coeff = (a / (1 + lam))
+            # balancing_coeff = (a / (1 + lam))   # Paper
+            balancing_coeff = lam                 # Implementation
             actor_total_loss = actor_rl_loss + balancing_coeff * imitation_loss
 
             actor_optimizer.zero_grad()
@@ -766,7 +767,14 @@ if __name__ == "__main__":
                 qR.update_target(args.tau)
 
         diff = (np.mean(actor_performance) - np.mean(actorR_performance)) / num_updates_per_training
-        lam = max(lam - gradient_descent_coef * runningAverage.add_and_normalize(diff), 0)
+        # lam = max(lam - gradient_descent_coef * runningAverage.add_and_normalize(diff), 0)   # Paper
+        # Implementation
+        if diff < 0:
+            lam -= gradient_descent_coef
+        else:
+            lam += gradient_descent_coef
+        lam = max(lam, 1/a)
+        lam = min(lam, a)
         training_time += time.time() - tic
         print('global step:', global_step, 'imitation_loss:', imitation_loss.item())
 
