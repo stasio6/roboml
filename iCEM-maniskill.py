@@ -57,6 +57,7 @@ def parse_args():
     parser.add_argument("--cem-new-action-init", type=str, choices=['mean', 'repeat'], default='mean')
     parser.add_argument("--cem-noise-beta", type=float, default=0.0) # TODO: Tune
     parser.add_argument("--cem-gaussian-bound", type=str, choices=['clip','none'], default='clip') # TODO: Maybe add more?
+    parser.add_argument("--cem-reset-sigma", type=lambda x: bool(strtobool(x)), default=True)
 
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
@@ -263,11 +264,13 @@ if __name__ == "__main__":
     for t in range(max_timesteps):
         state = eval_env.get_state()
         # Initialize mean and std of the action sequence of length H
-        print("Starting step", t)
+        # print("Starting step", t)
         if t == 0:
             mu = np.tile((env.action_space.high + env.action_space.low) / 2, [args.horizon, 1])
         else:
             mu[:-1] = mu[1:] # shift initialization
+            sigma[:-1] = sigma[1:]
+            sigma[-1] = (env.action_space.high - env.action_space.low) / 4
             if args.cem_new_action_init == 'mean':
                 # generally, this is a safer choice
                 mu[-1] = (env.action_space.high + env.action_space.low) / 2
@@ -275,10 +278,11 @@ if __name__ == "__main__":
                 mu[-1] = mu[-2]
             else:
                 raise NotImplementedError()
-        sigma = np.tile((env.action_space.high - env.action_space.low) / 4, [args.horizon, 1]) # TODO: Why do we always reset sigma?
+        if t == 0 or args.cem_reset_sigma:
+            sigma = np.tile((env.action_space.high - env.action_space.low) / 4, [args.horizon, 1]) # TODO: Why do we always reset sigma?
 
         # Fit a Gaussian Distribution by CEM
-        print("Sampling population")
+        # print("Sampling population")
         population = args.population
         for i in range(args.cem_iters):
 
@@ -332,9 +336,6 @@ if __name__ == "__main__":
             collect_episode_info([info], result)
             break
     
-    with open("debug/summary.txt", "a") as f:
-        f.write(f'{args.env_id}\t{args.exp_name}\t{eval_env.model_id}\t{done}\t{t+1}\n')
-
     sim_envs.close()
     eval_env.flush_trajectory()
     eval_env.flush_video()
@@ -344,3 +345,6 @@ if __name__ == "__main__":
     for k, v in result.items():
         logger.info(f"{k}: {np.mean(v):.4f}")
     logger.info(str(result))
+
+    with open("debug/summary.txt", "a") as f:
+        f.write(f'{args.env_id}\t{args.exp_name}\t{eval_env.model_id}\t{done}\t{t+1}\n')
