@@ -218,7 +218,7 @@ if __name__ == "__main__":
                     success = item['goal_achieved']
                 else:
                     success = 0
-                print(f"{global_ep_cnt}: episodic_return={item['episode']['r']:.4f}, success={success}")
+                print(f"{global_ep_cnt}: episodic_return={item['episode']['r']:.4f}, success={success}, steps={item['episode']['l']}")
                 result['return'].append(item['episode']['r'])
                 result['len'].append(item["episode"]["l"])
                 result['success'].append(success)
