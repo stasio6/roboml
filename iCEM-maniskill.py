@@ -337,8 +337,8 @@ if __name__ == "__main__":
             break
     
     sim_envs.close()
-    eval_env.flush_trajectory()
-    eval_env.flush_video()
+    # eval_env.flush_trajectory()
+    # eval_env.flush_video()
     # eval_env.reset() # to save the video
     eval_env.close()
 
