@@ -1,5 +1,5 @@
 {
-    "exp_name": "faucet-generate-20",
+    "exp_name": "peg-generate-20",
     "seed": 1,
     "torch_deterministic": true,
     "cuda": true,
@@ -7,7 +7,7 @@
     "wandb_project_name": "Rookie-dev",
     "wandb_entity": null,
     "capture_video": false,
-    "env_id": "TurnFaucet-v0",
+    "env_id": "PegInsertionSide-v1",
     "demo_path": "checkpoints/PickSingleYCB-v1/evaluation/PickSingleYCB-v1/PickSingleYCB-v1_trajectories_100.pkl",
     "num_demo_traj": null,
     "total_iters": 1000000,

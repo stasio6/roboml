@@ -1,5 +1,5 @@
 {
-    "exp_name": "faucet-generate-20",
+    "exp_name": "ycb-generate-20",
     "seed": 1,
     "torch_deterministic": true,
     "cuda": true,
@@ -7,7 +7,7 @@
     "wandb_project_name": "Rookie-dev",
     "wandb_entity": null,
     "capture_video": false,
-    "env_id": "TurnFaucet-v0",
+    "env_id": "PickSingleYCB-v1",
     "demo_path": "checkpoints/PickSingleYCB-v1/evaluation/PickSingleYCB-v1/PickSingleYCB-v1_trajectories_100.pkl",
     "num_demo_traj": null,
     "total_iters": 1000000,
@@ -22,7 +22,7 @@
     "num_eval_envs": 4,
     "sync_venv": false,
     "num_dataload_workers": 0,
-    "control_mode": "pd_ee_delta_pose",
+    "control_mode": "pd_ee_delta_pos",
     "algo_name": "BC_state",
     "script": "BC.py"
 }

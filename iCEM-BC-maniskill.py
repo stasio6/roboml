@@ -71,6 +71,7 @@ def parse_args():
     parser.add_argument("--control-mode", type=str, default='pd_ee_delta_pos')
     parser.add_argument("--from-ckpt", type=str, default=None)
     parser.add_argument("--expert-ckpt", type=str, default='output/PickCube-v1/SAC-ms2-new/230329-142137_1_profile/checkpoints/600000.pt')
+    parser.add_argument("--expert-demo-num", type=int)
     parser.add_argument("--image-size", type=int, default=64, # we have not implemented memory optimization for replay buffer, so use small image for now
         help="the size of observation image, e.g. 64 means 64x64")
 
@@ -288,7 +289,7 @@ if __name__ == "__main__":
 
      # expert setup
     from os.path import dirname as up
-    args.expert_ckpt = 'checkpoints/' + args.env_id + '/checkpoints/' + args.env_id + ".pt"
+    args.expert_ckpt = 'checkpoints_bc/' + args.env_id + '/checkpoints/' + args.env_id + "_" + str(args.expert_demo_num) + ".pt"
     #print(args.ex)
     expert_dir = up(up(args.expert_ckpt))
     import json
