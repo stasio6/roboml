@@ -120,7 +120,7 @@ def sample_action(args, env, sigma, mu):
     return samples
 
 class SimulateActionsWrapper(Wrapper):
-    def eval_action_sequences(self, state, expert, args):
+    def eval_action_sequences(self, state, mu, expert, args):
         scores = []
         actions = []
         sigma = np.tile((self.env.action_space.high - self.env.action_space.low) / 4, [args.horizon, 1])[0]
@@ -129,9 +129,11 @@ class SimulateActionsWrapper(Wrapper):
             self.env.set_state(state)
             obs = self.last_obs
             cur_actions = []
-            for _ in range(args.horizon):
-                suggested_action = expert.get_eval_action(torch.Tensor(obs).to(device)).detach().cpu()
-                action = sample_action(args, self.env, sigma, suggested_action)[0].cpu().numpy()
+            for act in range(args.horizon):
+                suggested_action = expert.get_eval_action(torch.Tensor(obs).to(device)).detach().cpu().numpy()
+                if mu is not None:
+                    suggested_action = mu[act]
+                action = sample_action(args, self.env, sigma, suggested_action)[0]
                 # print(suggested_action)
                 # print(sigma)
                 # print(action)
@@ -322,13 +324,14 @@ if __name__ == "__main__":
     start_time = time.time()
     for t in range(max_timesteps):
         state = eval_env.get_state()
+        mu = None
 
         # Fit a Gaussian Distribution by CEM
         # print("Sampling population")
         population = args.population
         for i in range(args.cem_iters):
 
-            action_sequences, rewards = sim_envs.eval_action_sequences(state, expert, args)
+            action_sequences, rewards = sim_envs.eval_action_sequences(state, mu, expert, args)
             # print(action_sequences, rewards)
             
             # Get elite set (top-k samples)
