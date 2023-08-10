@@ -94,7 +94,7 @@ from gym.vector.async_vector_env import (
     AlreadyPendingCallError,
 )
 
-def sample_action(args, sigma, mu):
+def sample_action(args, env, sigma, mu):
     # Sample and simulation
     if args.cem_noise_beta > 0:
         # colored noise, the trick from iCEM
@@ -123,7 +123,7 @@ class SimulateActionsWrapper(Wrapper):
     def eval_action_sequences(self, state, expert, args):
         scores = []
         actions = []
-        sigma = np.tile((env.action_space.high - env.action_space.low) / 4, [args.horizon, 1])[0]
+        sigma = np.tile((self.env.action_space.high - self.env.action_space.low) / 4, [args.horizon, 1])[0]
         for _ in range(args.population):
             score = 0
             self.env.set_state(state)
@@ -131,7 +131,7 @@ class SimulateActionsWrapper(Wrapper):
             cur_actions = []
             for _ in range(args.horizon):
                 suggested_action = expert.get_eval_action(torch.Tensor(obs).to(device)).detach().cpu()
-                action = sample_action(args, sigma, suggested_action)[0].cpu().numpy()
+                action = sample_action(args, self.env, sigma, suggested_action)[0].cpu().numpy()
                 # print(suggested_action)
                 # print(sigma)
                 # print(action)
