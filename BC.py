@@ -57,7 +57,6 @@ def parse_args():
         help="the learning rate of the agent")
     parser.add_argument("--batch-size", type=int, default=256,
         help="the batch size of sample from the replay memory")
-    parser.add_argument("--num-trajectories", type=int)
 
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--log-freq", type=int, default=2000)
@@ -217,7 +216,7 @@ if __name__ == "__main__":
 
 
     # dataloader setup
-    args.demo_path = "checkpoints/" + args.env_id + "/evaluation/" + args.env_id + "/" + args.env_id + "_trajectories_" + str(args.num_trajectories) + ".pkl"
+    args.demo_path = "checkpoints/" + args.env_id + "/evaluation/" + args.env_id + "/" + args.env_id + "_trajectories_" + str(args.num_demo_traj) + ".pkl"
     dataset = SmallDemoDataset(args.demo_path, device, args.num_demo_traj)
     sampler = RandomSampler(dataset, replacement=False)
     batch_sampler = BatchSampler(sampler, batch_size=args.batch_size, drop_last=True)
