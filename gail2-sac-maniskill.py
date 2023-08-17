@@ -358,13 +358,16 @@ if __name__ == "__main__":
 
     # env setup
     VecEnv = gym.vector.SyncVectorEnv if args.sync_venv else gym.vector.AsyncVectorEnv
+    kwargs = {} if args.sync_venv else {'context': 'forkserver'}
     envs = VecEnv(
-        [make_env(args.env_id, args.seed + i, args.control_mode) for i in range(args.num_envs)]
+        [make_env(args.env_id, args.seed + i, args.control_mode) for i in range(args.num_envs)],
+        **kwargs
     )
     eval_envs = VecEnv(
         [make_env(args.env_id, args.seed + 1000 + i, args.control_mode,
                 f'{log_path}/videos' if args.capture_video and i == 0 else None) 
-        for i in range(args.num_eval_envs)]
+        for i in range(args.num_eval_envs)],
+        **kwargs
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
     max_action = float(envs.single_action_space.high[0])
@@ -437,6 +440,7 @@ if __name__ == "__main__":
     start_time = time.time()
     obs = envs.reset()
     global_step = 0
+    global_env_step = 0
     global_update = 0
     learning_has_started = False
     num_updates_per_training = int(args.training_freq // args.num_steps_per_update)
@@ -460,6 +464,7 @@ if __name__ == "__main__":
 
             # TRY NOT TO MODIFY: execute the game and log data.
             next_obs, rewards, dones, infos = envs.step(actions)
+            global_env_step += args.num_envs
 
             # TRY NOT TO MODIFY: record rewards for plotting purposes
             result = collect_episode_info(infos, result)
@@ -612,6 +617,7 @@ if __name__ == "__main__":
             writer.add_scalar("losses/alpha", alpha, global_step)
             # print("SPS:", int(global_step / (time.time() - start_time)))
             writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+            writer.add_scalar("charts/env_steps", global_env_step, global_step)
             if args.autotune:
                 writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
 

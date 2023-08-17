@@ -65,6 +65,7 @@ def parse_args():
     parser.add_argument("--num-steps-per-update", type=float, default=1) # TODO: tune this
     parser.add_argument("--training-freq", type=int, default=64)
     parser.add_argument("--log-freq", type=int, default=2000)
+    parser.add_argument("--batch-size", type=int, default=20)
     parser.add_argument("--save-freq", type=int, default=500_000)
     parser.add_argument("--value-always-bootstrap", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="in ManiSkill variable episode length setting, set to True if positive reawrd, False if negative reward.")
@@ -94,6 +95,8 @@ from gym.vector.async_vector_env import (
     AlreadyPendingCallError,
 )
 
+global_env_step = 0
+
 def sample_action(args, env, sigma, mu):
     # Sample and simulation
     if args.cem_noise_beta > 0:
@@ -121,23 +124,28 @@ def sample_action(args, env, sigma, mu):
 
 class SimulateActionsWrapper(Wrapper):
     def eval_action_sequences(self, state, mu, expert, args):
+        global global_env_step
         scores = []
         actions = []
         sigma = np.tile((self.env.action_space.high - self.env.action_space.low) / 4, [args.horizon, 1])[0]
         for _ in range(args.population):
             score = 0
             self.env.set_state(state)
+            global_env_step += 1
             obs = self.last_obs
             cur_actions = []
             for act in range(args.horizon):
-                suggested_action = expert.get_eval_action(torch.Tensor(obs).to(device)).detach().cpu().numpy()
+                suggested_action = None
                 if mu is not None:
                     suggested_action = mu[act]
+                else:
+                    suggested_action = expert.get_eval_action(torch.Tensor(obs).to(device)).detach().cpu().numpy()
                 action = sample_action(args, self.env, sigma, suggested_action)[0]
                 # print(suggested_action)
                 # print(sigma)
                 # print(action)
                 obs, rew, _, _ = self.env.step(action)
+                global_env_step += 1
                 score += rew
                 cur_actions.append(action)
             scores.append(score)
@@ -284,14 +292,20 @@ if __name__ == "__main__":
     logger = setup_logger(name=' ', save_dir=log_path)
 
     # env setup
+    # kwargs = {'context': 'forkserver'}
+    # sim_envs = gym.vector.AsyncVectorEnv(
+    #     [make_env(args.env_id, args.control_mode, args.seed+1) for i in range(args.num_envs)],
+    #     **kwargs
+    # )
     sim_envs = make_env(args.env_id, args.control_mode, args.seed+1)()
     eval_env = make_env(args.env_id, args.control_mode, args.seed+1)()
     env = eval_env
     assert isinstance(env.action_space, gym.spaces.Box), "only continuous action space is supported"
+    assert args.population % args.batch_size == 0
 
      # expert setup
     from os.path import dirname as up
-    args.expert_ckpt = 'checkpoints_bc/' + args.env_id + '/checkpoints/' + args.env_id + "_" + str(args.expert_demo_num) + ".pt"
+    args.expert_ckpt = 'checkpoints_bc/' + args.env_id + '/checkpoints/' + args.env_id + "_20.pt"
     #print(args.ex)
     expert_dir = up(up(args.expert_ckpt))
     import json
@@ -352,6 +366,7 @@ if __name__ == "__main__":
 
         # Execute the first action of mean action seqeuence
         obs, rew, done, info = eval_env.step(mu[0])
+        global_env_step += 1
         sim_envs.save_obs(obs)
         logger.debug(f'Action Sacle Max: {abs(mu[0]).max():.4f}')
         logger.debug(str(mu[0]))
@@ -370,6 +385,7 @@ if __name__ == "__main__":
     for k, v in result.items():
         logger.info(f"{k}: {np.mean(v):.4f}")
     logger.info(str(result))
+    print("Global env steps:", global_env_step)
 
     with open("debug/summary.txt", "a") as f:
         f.write(f'{args.env_id}\t{args.exp_name}\t{eval_env.model_id}\t{done}\t{t+1}\n')
