@@ -65,7 +65,6 @@ def parse_args():
     parser.add_argument("--num-steps-per-update", type=float, default=1) # TODO: tune this
     parser.add_argument("--training-freq", type=int, default=64)
     parser.add_argument("--log-freq", type=int, default=2000)
-    parser.add_argument("--batch-size", type=int, default=20)
     parser.add_argument("--save-freq", type=int, default=500_000)
     parser.add_argument("--value-always-bootstrap", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="in ManiSkill variable episode length setting, set to True if positive reawrd, False if negative reward.")
@@ -122,17 +121,16 @@ def sample_action(args, env, sigma, mu):
         raise NotImplementedError()
     return samples
 
-class SimulateActionsWrapper(Wrapper):
-    def eval_action_sequences(self, state, mu, expert, args):
+    def eval_action_sequences(env, state, mu, expert, args):
         global global_env_step
         scores = []
         actions = []
-        sigma = np.tile((self.env.action_space.high - self.env.action_space.low) / 4, [args.horizon, 1])[0]
+        sigma = np.tile((env.action_space.high - env.action_space.low) / 4, [args.horizon, 1])[0]
         for _ in range(args.population):
             score = 0
-            self.env.set_state(state)
+            env.set_state(state)
             global_env_step += 1
-            obs = self.last_obs
+            obs = env.get_obs()
             cur_actions = []
             for act in range(args.horizon):
                 suggested_action = None
@@ -140,19 +138,18 @@ class SimulateActionsWrapper(Wrapper):
                     suggested_action = mu[act]
                 else:
                     suggested_action = expert.get_eval_action(torch.Tensor(obs).to(device)).detach().cpu().numpy()
-                action = sample_action(args, self.env, sigma, suggested_action)[0]
+                action = sample_action(args, env, sigma, suggested_action)[0]
                 # print(suggested_action)
                 # print(sigma)
                 # print(action)
-                obs, rew, _, _ = self.env.step(action)
+                obs, rew, _, _ = env.step(np.array([action]))
                 global_env_step += 1
-                score += rew
+                score += rew[0]
+                obs = obs[0]
                 cur_actions.append(action)
             scores.append(score)
             actions.append(np.array(cur_actions))
         return np.array(actions), np.array(scores)
-    def save_obs(self, obs):
-        self.last_obs = obs
 
 def split_into_chunks(a, num_chunks):
     chunk_size = len(a) // num_chunks
@@ -168,7 +165,7 @@ def split_into_chunks(a, num_chunks):
 def make_env(env_id, control_mode, seed, video_dir=None, video_trigger=None):
     def thunk():
         env = gym.make(env_id, reward_mode='dense', obs_mode='state', control_mode=control_mode)
-        env = SimulateActionsWrapper(env) # for sim_envs
+        # env = SimulateActionsWrapper(env) # for sim_envs
 
         if video_dir:
             env = RecordEpisode(env, output_dir=video_dir, save_trajectory=True, info_on_video=True)
@@ -214,6 +211,20 @@ def collect_episode_info(info, result=None):
             result['len'].append(item["episode"]["l"])
             result['success'].append(item['success'])
     return result
+
+class AsyncVectorEnvMPC(AsyncVectorEnv):
+    # def get_state(self): # this is not necessary
+    #     return np.array(self.call('get_state'))
+
+    def set_state(self, state):
+        # this can only set the same states to all envs
+        self.call('set_state', state)
+    
+    def save_obs(self, obs):
+        self.last_obs = obs
+
+    def get_obs(self):
+        return self.last_obs
 
 
 import importlib.util
@@ -292,16 +303,15 @@ if __name__ == "__main__":
     logger = setup_logger(name=' ', save_dir=log_path)
 
     # env setup
-    # kwargs = {'context': 'forkserver'}
-    # sim_envs = gym.vector.AsyncVectorEnv(
-    #     [make_env(args.env_id, args.control_mode, args.seed+1) for i in range(args.num_envs)],
-    #     **kwargs
-    # )
-    sim_envs = make_env(args.env_id, args.control_mode, args.seed+1)()
+    kwargs = {'context': 'forkserver'}
+    sim_envs = AsyncVectorEnvMPC(
+        [make_env(args.env_id, args.control_mode, args.seed+1) for i in range(args.num_envs)],
+        **kwargs
+    )
+    # sim_envs = make_env(args.env_id, args.control_mode, args.seed+1)()
     eval_env = make_env(args.env_id, args.control_mode, args.seed+1)()
     env = eval_env
     assert isinstance(env.action_space, gym.spaces.Box), "only continuous action space is supported"
-    assert args.population % args.batch_size == 0
 
      # expert setup
     from os.path import dirname as up
@@ -345,7 +355,7 @@ if __name__ == "__main__":
         population = args.population
         for i in range(args.cem_iters):
 
-            action_sequences, rewards = sim_envs.eval_action_sequences(state, mu, expert, args)
+            action_sequences, rewards = eval_action_sequences(sim_envs, state, mu, expert, args)
             # print(action_sequences, rewards)
             
             # Get elite set (top-k samples)
