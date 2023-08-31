@@ -403,9 +403,9 @@ if __name__ == "__main__":
     avg_steps, avg_env_steps, avg_wall_time = (0, 0, 0)
     for seed in range(args.num_experiments):
         steps, env_steps, wall_time = run_env(args, sim_envs, eval_env, seed, expert)
-        writer.add_scalar("iCEM/steps", steps, global_step)
-        writer.add_scalar("iCEM/env_steps", env_steps, global_step)
-        writer.add_scalar("iCEM/wall_time", wall_time, global_step)
+        writer.add_scalar("iCEM/steps", steps, seed)
+        writer.add_scalar("iCEM/env_steps", env_steps, seed)
+        writer.add_scalar("iCEM/wall_time", wall_time, seed)
         # print(steps, env_steps, wall_time)
         avg_steps += steps
         avg_env_steps = env_steps
