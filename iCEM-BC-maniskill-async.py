@@ -406,6 +406,7 @@ if __name__ == "__main__":
         writer.add_scalar("iCEM/steps", steps, seed)
         writer.add_scalar("iCEM/env_steps", env_steps, seed)
         writer.add_scalar("iCEM/wall_time", wall_time, seed)
+        writer.add_scalar("iCEM/seed", seed, seed)
         # print(steps, env_steps, wall_time)
         avg_steps += steps
         avg_env_steps = env_steps
