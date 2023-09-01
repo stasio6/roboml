@@ -36,6 +36,7 @@ def parse_args():
     if args.render_human:
         assert args.num_eval_envs == 1, "rendering human only works with 1 env"
 
+    args.ckpt = "checkpoints_gail/" + args.env_id + "/checkpoints/" + args.env_id + "_" + args.ckpt + ".pt"
     from os.path import dirname as up
     exp_dir = up(up(args.ckpt))
 
@@ -50,6 +51,7 @@ def parse_args():
         ckpt_name = osp.splitext(osp.basename(args.ckpt))[0]
         args.log_path = f'{exp_dir}/evaluation/{ckpt_name}'
 
+    args.ckpt = "checkpoints_gail/" + args.env_id + "/checkpoints/" + args.env_id + "_" + args.ckpt + ".pt"
     return args
 
 import importlib.util
@@ -167,6 +169,7 @@ if __name__ == "__main__":
     # envs.single_observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(envs.single_observation_space.shape[0]+1,), dtype=np.float32)
     # envs.single_observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(68,), dtype=np.float32)
     agent = Agent(envs).to(device)
+    print(args.ckpt)
     checkpoint = torch.load(args.ckpt)
     for key in ['agent', 'actor', 'q']:
         if key in checkpoint:
