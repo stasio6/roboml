@@ -57,17 +57,17 @@ def parse_args():
     parser.add_argument("--cem-noise-beta", type=float, default=0.0) # TODO: Tune
     parser.add_argument("--cem-gaussian-bound", type=str, choices=['clip','none'], default='clip') # TODO: Maybe add more?
     parser.add_argument("--use-bc", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True)
+    parser.add_argument("--step-limit", type=int, default=200)
 
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
-    parser.add_argument("--num-envs", type=int, default=16)
+    parser.add_argument("--num-envs", type=int, default=20)
     parser.add_argument("--num-eval-episodes", type=int, default=10)
     parser.add_argument("--num-eval-envs", type=int, default=1)
     parser.add_argument("--sync-venv", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
     parser.add_argument("--num-steps-per-update", type=float, default=1) # TODO: tune this
     parser.add_argument("--training-freq", type=int, default=64)
     parser.add_argument("--log-freq", type=int, default=2000)
-    parser.add_argument("--batch-size", type=int, default=20)
     parser.add_argument("--save-freq", type=int, default=500_000)
     parser.add_argument("--value-always-bootstrap", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="in ManiSkill variable episode length setting, set to True if positive reawrd, False if negative reward.")
@@ -299,6 +299,7 @@ def run_env(args, sim_envs, eval_env, seed, expert):
     for k, v in result.items():
         logger.info(f"{k}: {np.mean(v):.4f}")
     logger.info(str(result))
+    print("Num steps to solve:", eval_length)
     print("Global env steps:", global_env_step)
     
     return eval_length, global_env_step, time.time() - start_time
@@ -377,7 +378,7 @@ if __name__ == "__main__":
     eval_env = make_env(args.env_id, args.control_mode, args.seed+1)()
     env = eval_env
     assert isinstance(env.action_space, gym.spaces.Box), "only continuous action space is supported"
-    assert args.population % args.batch_size == 0
+    assert args.population % args.num_envs == 0
 
     # expert setup
     from os.path import dirname as up
@@ -401,16 +402,23 @@ if __name__ == "__main__":
             break
 
     avg_steps, avg_env_steps, avg_wall_time = (0, 0, 0)
-    for seed in range(args.num_experiments):
+    left = args.num_experiments
+    seed = 0
+    while left > 0:
         steps, env_steps, wall_time = run_env(args, sim_envs, eval_env, seed, expert)
+        seed += 1
         writer.add_scalar("iCEM/steps", steps, seed)
         writer.add_scalar("iCEM/env_steps", env_steps, seed)
         writer.add_scalar("iCEM/wall_time", wall_time, seed)
         writer.add_scalar("iCEM/seed", seed, seed)
+        writer.add_scalar("iCEM/success_seed", args.num_experiments - left, seed)
+        if steps > args.step_limit:
+            continue
         # print(steps, env_steps, wall_time)
         avg_steps += steps
         avg_env_steps = env_steps
         avg_wall_time = wall_time
+        left -= 1
 
     print("Avg steps:", avg_steps / args.num_experiments)
     print("Avg env steps:", avg_env_steps / args.num_experiments)
