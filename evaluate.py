@@ -120,6 +120,8 @@ class BaseTrajectorySaver(object):
 
 if __name__ == "__main__":
     args = parse_args()
+    import time
+    start_time = time.time()
 
     # TRY NOT TO MODIFY: seeding
     random.seed(args.seed)
@@ -169,7 +171,6 @@ if __name__ == "__main__":
     # envs.single_observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(envs.single_observation_space.shape[0]+1,), dtype=np.float32)
     # envs.single_observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(68,), dtype=np.float32)
     agent = Agent(envs).to(device)
-    print(args.ckpt)
     checkpoint = torch.load(args.ckpt)
     for key in ['agent', 'actor', 'q']:
         if key in checkpoint:
@@ -245,3 +246,4 @@ if __name__ == "__main__":
     envs.close()
     if args.save_trajectory:
         saver.save()
+    print(time.time() - start_time)
