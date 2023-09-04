@@ -375,7 +375,7 @@ if __name__ == "__main__":
         [make_env(args.env_id, args.control_mode, args.seed+1) for i in range(args.num_envs)],
         **kwargs
     )
-    eval_env = make_env(args.env_id, args.control_mode, args.seed+1)()
+    eval_env = make_env(args.env_id, args.control_mode, args.seed+1, video_dir=log_path)()
     env = eval_env
     assert isinstance(env.action_space, gym.spaces.Box), "only continuous action space is supported"
     assert args.population % args.num_envs == 0
@@ -416,8 +416,8 @@ if __name__ == "__main__":
             continue
         # print(steps, env_steps, wall_time)
         avg_steps += steps
-        avg_env_steps = env_steps
-        avg_wall_time = wall_time
+        avg_env_steps += env_steps
+        avg_wall_time += wall_time
         left -= 1
 
     print("Avg steps:", avg_steps / args.num_experiments)
@@ -425,7 +425,7 @@ if __name__ == "__main__":
     print("Avg wall time:", avg_wall_time / args.num_experiments)
 
     sim_envs.close()
-    # eval_env.flush_trajectory()
+    eval_env.flush_trajectory()
     # eval_env.flush_video()
     # eval_env.reset() # to save the video
     eval_env.close()
