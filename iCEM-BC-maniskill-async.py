@@ -246,6 +246,7 @@ def run_env(args, sim_envs, eval_env, bc_env, seed, expert):
     result = defaultdict(list)
     collect_time = training_time = eval_time = 0
     obs = eval_env.reset()
+    bc_env.reset()
     sim_envs.reset()
 
     start_time = time.time()
