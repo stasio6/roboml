@@ -216,7 +216,7 @@ if __name__ == "__main__":
 
 
     # dataloader setup
-    args.demo_path = "checkpoints_gail/" + args.env_id + "/evaluation/" + args.env_id + "/" + args.demo_path + "/" + args.env_id + "_trajectories_100.pkl"
+    args.demo_path = "checkpoints_gail/" + args.env_id + "/evaluation/" + args.demo_path + "/" + args.env_id + "_trajectories_100.pkl"
     dataset = SmallDemoDataset(args.demo_path, device, args.num_demo_traj)
     sampler = RandomSampler(dataset, replacement=False)
     batch_sampler = BatchSampler(sampler, batch_size=args.batch_size, drop_last=True)
