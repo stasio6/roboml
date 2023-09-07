@@ -376,7 +376,7 @@ if __name__ == "__main__":
         **kwargs
     )
     eval_env = make_env(args.env_id, args.control_mode, args.seed+1, video_dir=log_path)()
-    bc_env = make_env(args.env_id, args.control_mode, args.seed+1, video_dir=log_path)()
+    bc_env = make_env(args.env_id, args.control_mode, args.seed+1)()
     env = eval_env
     assert isinstance(env.action_space, gym.spaces.Box), "only continuous action space is supported"
     assert args.population % args.num_envs == 0
