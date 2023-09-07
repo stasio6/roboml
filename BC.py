@@ -50,7 +50,7 @@ def parse_args():
         help="the id of the environment")
     parser.add_argument("--demo-path", type=str, default='checkpoints/PickSingleYCB-v1/evaluation/PickSingleYCB-v1/PickSingleYCB-v1_trajectories_100.pkl',
         help="the path of demo pkl")
-    parser.add_argument("--num-demo-traj", type=int, default=None)
+    parser.add_argument("--num-demo-traj", type=int, default=100)
     parser.add_argument("--total-iters", type=int, default=100_000,
         help="total timesteps of the experiments")
     parser.add_argument("--lr", type=float, default=3e-4,
@@ -216,7 +216,7 @@ if __name__ == "__main__":
 
 
     # dataloader setup
-    args.demo_path = "checkpoints/" + args.env_id + "/evaluation/" + args.env_id + "/" + args.env_id + "_trajectories_" + str(args.num_demo_traj) + ".pkl"
+    args.demo_path = "checkpoints_gail/" + args.env_id + "/evaluation/" + args.env_id + "/" + args.demo_path + "/" + args.env_id + "_trajectories_100.pkl"
     dataset = SmallDemoDataset(args.demo_path, device, args.num_demo_traj)
     sampler = RandomSampler(dataset, replacement=False)
     batch_sampler = BatchSampler(sampler, batch_size=args.batch_size, drop_last=True)
