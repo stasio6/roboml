@@ -236,7 +236,7 @@ def import_file_as_module(path, module_name='tmp_module'):
     spec.loader.exec_module(foo)
     return foo
 
-def run_env(args, sim_envs, eval_env, seed, expert):
+def run_env(args, sim_envs, eval_env, bc_env, seed, expert):
     
     # TRY NOT TO MODIFY: start the game
     start_time = time.time()
@@ -259,10 +259,10 @@ def run_env(args, sim_envs, eval_env, seed, expert):
         population = args.population
         for i in range(args.cem_iters):
             if i == 0 and args.use_bc:
+                bc_env.set_state(state)
                 for act in range(args.horizon):
                     mu[act] = expert.get_eval_action(torch.Tensor(obs).to(device)).detach().cpu().numpy()
-                    obs, _, _, _ = eval_env.step(mu[act])
-                eval_env.set_state(state)
+                    obs, _, _, _ = bc_env.step(mu[act])
                 global_env_step += args.horizon + 1
 
             samples = sample_action(args, env, sigma, mu)
@@ -376,6 +376,7 @@ if __name__ == "__main__":
         **kwargs
     )
     eval_env = make_env(args.env_id, args.control_mode, args.seed+1, video_dir=log_path)()
+    bc_env = make_env(args.env_id, args.control_mode, args.seed+1, video_dir=log_path)()
     env = eval_env
     assert isinstance(env.action_space, gym.spaces.Box), "only continuous action space is supported"
     assert args.population % args.num_envs == 0
@@ -405,7 +406,7 @@ if __name__ == "__main__":
     left = args.num_experiments
     seed = 0
     while left > 0:
-        steps, env_steps, wall_time = run_env(args, sim_envs, eval_env, seed, expert)
+        steps, env_steps, wall_time = run_env(args, sim_envs, eval_env, bc_env, seed, expert)
         seed += 1
         writer.add_scalar("iCEM/steps", steps, seed)
         writer.add_scalar("iCEM/env_steps", env_steps, seed)
@@ -421,8 +422,8 @@ if __name__ == "__main__":
         left -= 1
 
     print("Avg steps:", avg_steps / args.num_experiments)
-    print("Avg env steps:", avg_env_steps / args.num_experiments)
-    print("Avg wall time:", avg_wall_time / args.num_experiments)
+    print("Total env steps:", avg_env_steps)
+    print("Total wall time:", avg_wall_time)
 
     sim_envs.close()
     eval_env.flush_trajectory()
