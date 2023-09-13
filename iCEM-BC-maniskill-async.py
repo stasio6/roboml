@@ -414,9 +414,11 @@ if __name__ == "__main__":
         writer.add_scalar("iCEM/wall_time", wall_time, seed)
         writer.add_scalar("iCEM/seed", seed, seed)
         writer.add_scalar("iCEM/success_seed", args.num_experiments - left, seed)
+        print("Experiment done")
+        print(steps, env_steps, wall_time)
+        print("Currently:", seed, left)
         if steps > args.step_limit:
             continue
-        # print(steps, env_steps, wall_time)
         avg_steps += steps
         avg_env_steps += env_steps
         avg_wall_time += wall_time
