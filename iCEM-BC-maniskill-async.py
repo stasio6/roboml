@@ -384,7 +384,7 @@ if __name__ == "__main__":
 
     # expert setup
     from os.path import dirname as up
-    args.expert_ckpt = 'checkpoints_bc/' + args.env_id + '/checkpoints/' + args.env_id + "_20.pt"
+    args.expert_ckpt = 'checkpoints_bc/' + args.env_id + '/checkpoints/' + args.env_id + "_200.pt"
     #print(args.ex)
     expert_dir = up(up(args.expert_ckpt))
     import json
