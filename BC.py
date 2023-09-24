@@ -216,7 +216,7 @@ if __name__ == "__main__":
 
 
     # dataloader setup
-    args.demo_path = "checkpoints/" + args.env_id + "/evaluation/" + args.env_id + "/" + args.env_id + "_trajectories_200.pkl"
+    # args.demo_path = "checkpoints/" + args.env_id + "/evaluation/" + args.env_id + "/" + args.env_id + "_trajectories_200.pkl"
     # if len(args.demo_path) == 2:
     #     args.demo_path = "checkpoints_gail/" + args.env_id + "/evaluation/" + args.demo_path + "/" + args.env_id + "_trajectories_100.pkl"
     dataset = SmallDemoDataset(args.demo_path, device, args.num_demo_traj)
