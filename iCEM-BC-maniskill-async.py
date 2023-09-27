@@ -47,7 +47,6 @@ def parse_args():
     # Algorithm specific arguments
     parser.add_argument("--env-id", type=str, default="PickCube-v1",
         help="the id of the environment")
-    parser.add_argument("--max-timesteps", type=int, default=190)
     parser.add_argument("--num-experiments", type=int, default=100)
     parser.add_argument("--horizon", type=int, default=10)
     parser.add_argument("--population", type=int, default=200)
@@ -57,7 +56,7 @@ def parse_args():
     parser.add_argument("--cem-noise-beta", type=float, default=0.0) # TODO: Tune
     parser.add_argument("--cem-gaussian-bound", type=str, choices=['clip','none'], default='clip') # TODO: Maybe add more?
     parser.add_argument("--use-bc", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True)
-    parser.add_argument("--step-limit", type=int, default=150)
+    parser.add_argument("--step-limit", type=int)
 
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
@@ -240,9 +239,9 @@ def run_env(args, sim_envs, eval_env, bc_env, seed, expert):
     
     # TRY NOT TO MODIFY: start the game
     start_time = time.time()
-    max_timesteps = env.spec.max_episode_steps if args.max_timesteps is None else args.max_timesteps
+    max_timesteps = env.spec.max_episode_steps - args.horizon - 1 if args.step_limit is None else args.step_limit
     global_env_step = 0
-    eval_length = 200
+    eval_length = max_timesteps + 1
     result = defaultdict(list)
     collect_time = training_time = eval_time = 0
     obs = eval_env.reset()
@@ -417,7 +416,7 @@ if __name__ == "__main__":
         print("Experiment done")
         print(steps, env_steps, wall_time)
         print("Currently:", seed, left)
-        if steps > args.step_limit:
+        if args.step_limit and steps > args.step_limit:
             continue
         avg_steps += steps
         avg_env_steps += env_steps
