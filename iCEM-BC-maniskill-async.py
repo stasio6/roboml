@@ -235,11 +235,10 @@ def import_file_as_module(path, module_name='tmp_module'):
     spec.loader.exec_module(foo)
     return foo
 
-def run_env(args, sim_envs, eval_env, bc_env, seed, expert):
+def run_env(args, sim_envs, eval_env, bc_env, max_timesteps, seed, expert):
     
     # TRY NOT TO MODIFY: start the game
     start_time = time.time()
-    max_timesteps = env.spec.max_episode_steps - args.horizon - 1 if args.step_limit is None else args.step_limit
     global_env_step = 0
     eval_length = max_timesteps + 1
     result = defaultdict(list)
@@ -406,7 +405,8 @@ if __name__ == "__main__":
     left = args.num_experiments
     seed = 0
     while left > 0:
-        steps, env_steps, wall_time = run_env(args, sim_envs, eval_env, bc_env, seed, expert)
+        max_timesteps = bc_env.spec.max_episode_steps - args.horizon - 1 if args.step_limit is None else args.step_limit
+        steps, env_steps, wall_time = run_env(args, sim_envs, eval_env, bc_env, max_timesteps, seed, expert)
         seed += 1
         writer.add_scalar("iCEM/steps", steps, seed)
         writer.add_scalar("iCEM/env_steps", env_steps, seed)
@@ -416,7 +416,7 @@ if __name__ == "__main__":
         print("Experiment done")
         print(steps, env_steps, wall_time)
         print("Currently:", seed, left)
-        if args.step_limit and steps > args.step_limit:
+        if steps > max_timesteps:
             continue
         avg_steps += steps
         avg_env_steps += env_steps
