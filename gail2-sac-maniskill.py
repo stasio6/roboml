@@ -373,7 +373,6 @@ if __name__ == "__main__":
     max_action = float(envs.single_action_space.high[0])
 
     # demo dataset setup
-    args.demo_path = "checkpoints/" + args.env_id + "/evaluation/" + args.env_id + "/" + args.env_id + "_trajectories_200.pkl"
     if 'pyrl' in args.demo_path:
         from utils.pyrl_data import load_demo_dataset
     else:

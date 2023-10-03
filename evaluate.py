@@ -36,7 +36,6 @@ def parse_args():
     if args.render_human:
         assert args.num_eval_envs == 1, "rendering human only works with 1 env"
 
-    args.ckpt = "checkpoints_gail/" + args.env_id + "/checkpoints/" + args.env_id + "_" + args.ckpt + ".pt"
     from os.path import dirname as up
     exp_dir = up(up(args.ckpt))
 
@@ -50,8 +49,6 @@ def parse_args():
         import os.path as osp
         ckpt_name = osp.splitext(osp.basename(args.ckpt))[0]
         args.log_path = f'{exp_dir}/evaluation/{ckpt_name}'
-
-    args.ckpt = "checkpoints_gail/" + args.env_id + "/checkpoints/" + args.env_id + "_" + args.ckpt + ".pt"
     return args
 
 import importlib.util

@@ -42,7 +42,7 @@ def parse_args():
         help="weather to capture videos of the agent performances (check out `videos` folder)")
 
     # Algorithm specific arguments
-    parser.add_argument("--env-id", type=str, default="PickCube-v2",
+    parser.add_argument("--env-id", type=str, default="PickCube-v1",
         help="the id of the environment")
     parser.add_argument("--total-timesteps", type=int, default=1_000_000,
         help="total timesteps of the experiments")
@@ -71,7 +71,7 @@ def parse_args():
     
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
-    parser.add_argument("--num-envs", type=int, default=4)
+    parser.add_argument("--num-envs", type=int, default=16)
     parser.add_argument("--num-eval-episodes", type=int, default=10)
     parser.add_argument("--num-eval-envs", type=int, default=1)
     parser.add_argument("--sync-venv", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
