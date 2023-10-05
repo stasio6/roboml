@@ -6,4 +6,5 @@ for subdir, dirs, files in os.walk(rootdir):
     for file in files:
         if file[-4:] == ".mp4":
             print(os.path.join(subdir, file))
+            os.remove(os.path.join(subdir, file))
 print(ile)
