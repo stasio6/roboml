@@ -23,7 +23,7 @@ TARGET_KEY_TO_SOURCE_KEY = {
     'success': 'success',
     # 'next_observations': 'next_obs',
     # 'dones': 'dones',
-    # 'rewards': 'rewards',
+    'rewards': 'rewards',
     'actions': 'actions',
 }
 
@@ -41,13 +41,14 @@ def load_demo_dataset(path, keys=['observations', 'actions'], num_traj=None):
         if isinstance(dataset[target_key][0], np.ndarray):
             if target_key in ['observations', 'states'] and \
                     len(dataset[target_key][0]) > len(raw_data['traj_0']['actions']):
-                dataset[target_key] = np.concatenate([
-                    t[:-1] for t in dataset[target_key]
-                ], axis=0)
+                # dataset[target_key] = np.concatenate([
+                #     t[:-1] for t in dataset[target_key]
+                # ], axis=0)
+                print("nope")
             else:
                 dataset[target_key] = np.concatenate(dataset[target_key], axis=0)
 
-            print('Load', target_key, dataset[target_key].shape)
+            # print('Load', target_key, dataset[target_key].shape)
         else:
             print('Load', target_key, len(dataset[target_key]), type(dataset[target_key][0]))
     return dataset
