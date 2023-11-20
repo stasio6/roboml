@@ -86,6 +86,7 @@ def parse_args():
         help="in ManiSkill variable episode length setting, set to True if positive reawrd, False if negative reward.")
     parser.add_argument("--control-mode", type=str, default='pd_ee_delta_pos')
     parser.add_argument("--from-ckpt", type=str, default=None)
+    parser.add_argument("--demo-style", type=str, default="flex")
     parser.add_argument("--image-size", type=int, default=64,
         help="the size of observation image, e.g. 64 means 64x64")
 
@@ -544,8 +545,15 @@ class SmallDemoDataset_RGBD(object): # load everything into memory
     
     def sample(self, batch_size, device):
         total_sizes = self.demo_size + self.collect_data.size()*self.num_envs
-        n_samples_demo = int(self.demo_size/total_sizes*batch_size)
-        # n_samples_demo = int(batch_size * 0.1)
+        n_samples_demo = 0
+        if args.demo_style == "flex":
+            n_samples_demo = int(self.demo_size/total_sizes*batch_size)
+        elif args.demo_style == "ratio":
+            n_samples_demo = int(batch_size * 0.1)
+        elif args.demo_style == "none":
+            n_samples_demo = 0
+        else:
+            raise NotImplementedError()
         n_samples_collect = batch_size - n_samples_demo
         
         # print("demo size:", self.demo_size)
