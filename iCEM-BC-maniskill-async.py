@@ -416,6 +416,7 @@ if __name__ == "__main__":
         print("Experiment done")
         print(steps, env_steps, wall_time)
         print("Currently:", seed, left)
+        print("Cur total env steps:", avg_env_steps)
         if steps > max_timesteps:
             continue
         avg_steps += steps
