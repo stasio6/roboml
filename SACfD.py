@@ -543,9 +543,9 @@ class SmallDemoDataset_RGBD(object): # load everything into memory
         return self.demo_size
     
     def sample(self, batch_size, device):
-        # total_sizes = self.demo_size + self.collect_data.size()*self.num_envs
-        # n_samples_demo = int(self.demo_size/total_sizes*batch_size)
-        n_samples_demo = int(batch_size * 0.1)
+        total_sizes = self.demo_size + self.collect_data.size()*self.num_envs
+        n_samples_demo = int(self.demo_size/total_sizes*batch_size)
+        # n_samples_demo = int(batch_size * 0.1)
         n_samples_collect = batch_size - n_samples_demo
         
         # print("demo size:", self.demo_size)
