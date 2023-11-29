@@ -53,6 +53,21 @@ def load_demo_dataset(path, keys=['observations', 'actions'], num_traj=None):
             print('Load', target_key, len(dataset[target_key]), type(dataset[target_key][0]))
     return dataset
 
+def load_demo_dataset_with_state(path, keys=['observations', 'actions'], num_traj=None):
+    assert num_traj is None
+    raw_data = load_hdf5(path)
+    dataset = {}
+    for target_key in keys:
+        if 'next' in target_key:
+            raise NotImplementedError('Please carefully deal with the length of trajectory')
+        source_key = TARGET_KEY_TO_SOURCE_KEY[target_key]
+        dataset[target_key] = [ raw_data[idx][source_key] for idx in raw_data ]
+        if isinstance(dataset[target_key][0], np.ndarray):
+            print('Load', target_key, len(dataset[target_key]), dataset[target_key][0].shape)
+        else:
+            print('Load', target_key, len(dataset[target_key]), type(dataset[target_key][0]))
+    return dataset
+
 def load_trajecories(path):
     raw_data = load_hdf5(path)
     # raw_data has keys like: ['traj_0', 'traj_1', ...]

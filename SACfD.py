@@ -1,4 +1,4 @@
-ALGO_NAME = 'SACfd-ms2-RGBD-speed'
+ALGO_NAME = 'SACfd-ms2-new'
 
 import os
 import argparse
@@ -20,7 +20,6 @@ from torch.utils.tensorboard import SummaryWriter
 
 import datetime
 from collections import defaultdict
-from functools import partial
 
 def parse_args():
     # fmt: off
@@ -47,15 +46,15 @@ def parse_args():
         help="the id of the environment")
     parser.add_argument("--demo-path", type=str, default='output/PickCube-v1/SAC-ms2-new/230329-142137_1_profile/evaluation/600000/PickCube-v1_trajectories_1000.rgbd.pd_ee_delta_pos.h5',
         help="the path of demo H5 file or pkl file")
-    parser.add_argument("--total-timesteps", type=int, default=5_000_000,
+    parser.add_argument("--total-timesteps", type=int, default=1_000_000,
         help="total timesteps of the experiments")
-    parser.add_argument("--buffer-size", type=int, default=300_000,
+    parser.add_argument("--buffer-size", type=int, default=None,
         help="the replay memory buffer size")
     parser.add_argument("--gamma", type=float, default=0.8,
         help="the discount factor gamma")
     parser.add_argument("--tau", type=float, default=0.01,
         help="target smoothing coefficient (default: 0.01)")
-    parser.add_argument("--batch-size", type=int, default=512,
+    parser.add_argument("--batch-size", type=int, default=1024,
         help="the batch size of sample from the reply memory")
     parser.add_argument("--learning-starts", type=int, default=4000,
         help="timestep to start learning")
@@ -71,25 +70,21 @@ def parse_args():
             help="Entropy regularization coefficient.")
     parser.add_argument("--autotune", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
         help="automatic tuning of the entropy coefficient")
-
+    
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
-    parser.add_argument("--num-envs", type=int, default=16)
+    parser.add_argument("--num-envs", type=int, default=4)
     parser.add_argument("--num-eval-episodes", type=int, default=10)
     parser.add_argument("--num-eval-envs", type=int, default=1)
     parser.add_argument("--sync-venv", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
-    parser.add_argument("--num-steps-per-update", type=float, default=4)
+    parser.add_argument("--num-steps-per-update", type=float, default=2)
     parser.add_argument("--training-freq", type=int, default=64)
     parser.add_argument("--log-freq", type=int, default=2000)
-    parser.add_argument("--save-freq", type=int, default=500_000)
+    parser.add_argument("--save-freq", type=int, default=100_000)
     parser.add_argument("--value-always-bootstrap", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="in ManiSkill variable episode length setting, set to True if positive reawrd, False if negative reward.")
     parser.add_argument("--control-mode", type=str, default='pd_ee_delta_pos')
     parser.add_argument("--from-ckpt", type=str, default=None)
-    parser.add_argument("--demo-style", type=str, default="flex")
-    parser.add_argument("--image-size", type=int, default=64,
-        help="the size of observation image, e.g. 64 means 64x64")
-
 
     args = parser.parse_args()
     args.algo_name = ALGO_NAME
@@ -105,232 +100,32 @@ def parse_args():
     return args
 
 import mani_skill2.envs
-from mani_skill2.utils.common import flatten_state_dict, flatten_dict_space_keys
 from mani_skill2.utils.wrappers import RecordEpisode
-from mani_skill2.vector.vec_env import VecEnvObservationWrapper
-from gym.core import Wrapper, ObservationWrapper
-from gym import spaces
 
-# class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
-#     def __init__(self, env):
-#         super().__init__(env)
-#         assert self.obs_mode == 'rgbd'
-#         self.observation_space = self.build_obs_space(env)
-#         self.concat_fn = partial(torch.cat, dim=-1)
-
-#     def observation(self, obs):
-#         return self.convert_obs(obs, self.concat_fn)
-    
-#     @staticmethod
-#     def build_obs_space(env, depth_dtype=np.float16):
-#         obs_space = env.observation_space
-#         state_dim = 0
-#         for k in ['agent', 'extra']:
-#             state_dim += sum([v.shape[0] for v in flatten_dict_space_keys(obs_space[k]).spaces.values()])
-
-#         h, w, _ = env.observation_space['image']['hand_camera']['rgb'].shape
-#         k = len(env.observation_space['image'])
-
-#         return spaces.Dict({
-#             'state': spaces.Box(-float("inf"), float("inf"), shape=(state_dim,), dtype=np.float32),
-#             'rgb': spaces.Box(0, 255, shape=(h,w,k*3), dtype=np.uint8),
-#             'depth': spaces.Box(-float("inf"), float("inf"), shape=(h,w,k), dtype=depth_dtype),
-#         })
-#     # NOTE: We have to use float32 for gym AsyncVecEnv since it does not support float16, but we can use float16 for MS2 vec env
-    
-#     @staticmethod
-#     def convert_obs(obs, concat_fn):
-#         img_dict = obs['image']
-#         new_img_dict = {
-#             key: concat_fn([v[key] for v in img_dict.values()])
-#             for key in ['rgb', 'depth']
-#         }
-#         if isinstance(new_img_dict['depth'], torch.Tensor): # MS2 vec env uses float16, but gym AsyncVecEnv uses float32
-#             new_img_dict['depth'] = new_img_dict['depth'].to(torch.float16)
-
-#         state = np.hstack([
-#             flatten_state_dict(obs["agent"]),
-#             flatten_state_dict(obs["extra"]),
-#         ])
-#         new_img_dict['state'] = state
-
-#         return new_img_dict
-    
-# class MS2_RGBDObsWrapper(ObservationWrapper):
-#     def __init__(self, env):
-#         super().__init__(env)
-#         assert self.obs_mode == 'rgbd'
-#         self.observation_space = MS2_RGBDVecEnvObsWrapper.build_obs_space(env, depth_dtype=np.float32)
-#         self.concat_fn = partial(np.concatenate, axis=-1)
-
-#     def observation(self, obs):
-#         return MS2_RGBDVecEnvObsWrapper.convert_obs(obs, self.concat_fn)
-    
-# from mani_skill2.vector.wrappers.sb3 import select_index_from_dict
-# class AutoResetVecEnvWrapper(Wrapper):
-#     # adapted from https://github.com/haosulab/ManiSkill2/blob/main/mani_skill2/vector/wrappers/sb3.py#L25
-#     def step(self, actions):
-#         vec_obs, rews, dones, infos = self.env.step(actions)
-#         if not dones.any():
-#             return vec_obs, rews, dones, infos
-
-#         for i, done in enumerate(dones):
-#             if done:
-#                 # NOTE: ensure that it will not be inplace modified when reset
-#                 infos[i]["terminal_observation"] = select_index_from_dict(vec_obs, i)
-
-#         reset_indices = np.where(dones)[0]
-#         vec_obs = self.env.reset(indices=reset_indices)
-#         return vec_obs, rews, dones, infos
-    
-def seed_env(env, seed):
-    env.seed(seed)
-    env.action_space.seed(seed)
-    env.observation_space.seed(seed)
-
-# def make_env(env_id, control_mode, seed, video_dir=None, video_trigger=None):
-#     def thunk():
-#         env = gym.make(env_id, reward_mode='dense', obs_mode='state', control_mode=control_mode)
-
-#         if video_dir:
-#             env = RecordEpisode(env, output_dir=video_dir, save_trajectory=True, info_on_video=True)
-#         env = gym.wrappers.RecordEpisodeStatistics(env)
-#         env = gym.wrappers.ClipAction(env)
-
-#         env.seed(seed)
-#         env.action_space.seed(seed)
-#         env.observation_space.seed(seed)
-#         env.single_observation_space = env.observation_space
-#         env.single_action_space = env.action_space
-#         return env
-
-#     return thunk
-
-def make_vec_env(env_id, num_envs, seed, control_mode=None, obs_mode=None, image_size=None, video_dir=None, gym_vec_env=False):
-    assert gym_vec_env or video_dir is None, 'Saving video is only supported for gym vec env'
-    cam_cfg = {'width': image_size, 'height': image_size} if image_size else None
-    wrappers = [
-        gym.wrappers.RecordEpisodeStatistics,
-        gym.wrappers.ClipAction,
-    ]
-    if gym_vec_env:
+def make_env(env_id, seed, control_mode=None, video_dir=None):
+    def thunk():
+        env = gym.make(env_id, reward_mode='dense', obs_mode='state', control_mode=control_mode)
         if video_dir:
-            wrappers.append(partial(RecordEpisode, output_dir=video_dir, save_trajectory=False, info_on_video=True))
-        # wrappers.append(MS2_RGBDObsWrapper)
-        def make_single_env(_seed):
-            def thunk():
-                env = gym.make(env_id, reward_mode='dense', obs_mode=obs_mode, control_mode=control_mode, camera_cfgs=cam_cfg)
-                for wrapper in wrappers: env = wrapper(env)
-                seed_env(env, _seed)
-                return env
-            return thunk
-        # must use AsyncVectorEnv, so that the renderers will be in different processes
-        envs = gym.vector.AsyncVectorEnv([make_single_env(seed + i) for i in range(num_envs)], context='forkserver')
-    else:
-        envs = mani_skill2.vector.make(
-            env_id, num_envs, obs_mode=obs_mode, reward_mode='dense', control_mode=control_mode, wrappers=wrappers, camera_cfgs=cam_cfg,
-        )
-        envs.is_vector_env = True
-        # envs = MS2_RGBDVecEnvObsWrapper(envs) # must be outside of ms2_vec_env, otherwise obs will be raw
-        # envs = AutoResetVecEnvWrapper(envs) # must be outside of ObsWrapper, otherwise info['terminal_obs'] will be raw obs
-        envs.single_action_space = envs.action_space
-        envs.single_observation_space = envs.observation_space
-        seed_env(envs, seed)
+            env = RecordEpisode(env, output_dir=video_dir, save_trajectory=False, info_on_video=True)
+            # env = RecordEpisode(env, output_dir=video_dir, save_trajectory=False, info_on_video=False)
+        env = gym.wrappers.RecordEpisodeStatistics(env)
+        env = gym.wrappers.ClipAction(env)
 
-    return envs
+        env.seed(seed)
+        env.action_space.seed(seed)
+        env.observation_space.seed(seed)
+        return env
 
-def make_mlp(in_channels, mlp_channels, act_builder=nn.ReLU, last_act=True):
-    c_in = in_channels
-    module_list = []
-    for idx, c_out in enumerate(mlp_channels):
-        module_list.append(nn.Linear(c_in, c_out))
-        if last_act or idx < len(mlp_channels) - 1:
-            module_list.append(act_builder())
-        c_in = c_out
-    return nn.Sequential(*module_list)
+    return thunk
 
-# class PlainConv(nn.Module):
-#     def __init__(self,
-#                  in_channels=3,
-#                  out_dim=256,
-#                  max_pooling=True,
-#                  inactivated_output=False, # False for ConvBody, True for CNN
-#                  image_size=128,
-#                  ):
-#         assert image_size in [64, 128]
-#         super().__init__()
-#         self.out_dim = out_dim
-#         self.cnn = nn.Sequential(
-#             nn.Conv2d(in_channels, 16, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-#             nn.MaxPool2d(2, 2),  # [64, 64]
-#             nn.Conv2d(16, 16, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-#             nn.MaxPool2d(2, 2),  # [32, 32]
-#             nn.Conv2d(16, 32, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-#             nn.MaxPool2d(2, 2),  # [16, 16]
-#             nn.Conv2d(32, 64, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-#             nn.MaxPool2d(2, 2),  # [8, 8]
-#             nn.Conv2d(64, 128, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-#             nn.MaxPool2d(2, 2),  # [4, 4]
-#             nn.Conv2d(128, 128, 1, padding=0, bias=True), nn.ReLU(inplace=True),
-#         )
-#         feature_size = int((image_size / 32) ** 2)
-#         if max_pooling:
-#             self.pool = nn.AdaptiveMaxPool2d((1, 1))
-#             self.fc = make_mlp(128, [out_dim], last_act=not inactivated_output)
-#         else:
-#             self.pool = None
-#             self.fc = make_mlp(128 * feature_size, [out_dim], last_act=not inactivated_output)
+def to_tensor(x, device):
+    if isinstance(x, dict):
+        return {k: to_tensor(v, device) for k, v in x.items()}
+    elif isinstance(x, torch.Tensor):
+        return x.to(device)
+    return torch.tensor(x, dtype=torch.float32, device=device)
 
-#         self.reset_parameters()
 
-#     def reset_parameters(self):
-#         for name, module in self.named_modules():
-#             if isinstance(module, (nn.Linear, nn.Conv1d, nn.Conv2d)):
-#                 if module.bias is not None:
-#                     nn.init.zeros_(module.bias)
-
-#     def forward(self, obs):
-#         # Preprocess the obs before passing to the real network, similar to the Dataset class in supervised learning
-#         rgb = obs['rgb'].float() / 255.0 # (B, H, W, 3*k)
-#         depth = obs['depth'].float() # (B, H, W, 1*k)
-#         img = torch.cat([rgb, depth], dim=3) # (B, H, W, C)
-#         img = img.permute(0, 3, 1, 2) # (B, C, H, W)
-#         x = self.cnn(img)
-#         if self.pool is not None:
-#             x = self.pool(x)
-#         x = x.flatten(1)
-#         x = self.fc(x)
-#         return x
-    
-# class PlainConv3(PlainConv): # for 50x125 image
-#     def __init__(self,
-#                   in_channels=3,
-#                   out_dim=256,
-#                   max_pooling=False,
-#                   inactivated_output=False, # False for ConvBody, True for CNN
-#                   ):
-#         nn.Module.__init__(self)
-#         self.out_dim = out_dim
-#         self.cnn = nn.Sequential(
-#              nn.Conv2d(in_channels, 16, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-#              nn.MaxPool2d(2, 2),  # [25, 62]
-#              nn.Conv2d(16, 16, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-#              nn.MaxPool2d(2, 2),  # [12, 31]
-#              nn.Conv2d(16, 32, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-#              nn.MaxPool2d(2, 2),  # [6, 15]
-#              nn.Conv2d(32, 64, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-#              nn.MaxPool2d(2, 2),  # [3, 7]
-#              nn.Conv2d(64, 128, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-#         )
-#         if max_pooling:
-#             self.pool = nn.AdaptiveMaxPool2d((1, 1))
-#             self.fc = make_mlp(128, [out_dim], last_act=not inactivated_output)
-#         else:
-#             self.pool = None
-#             self.fc = make_mlp(128 * 3 * 7, [out_dim], last_act=not inactivated_output)
-
-#         self.reset_parameters()
-    
 # ALGO LOGIC: initialize agent here:
 class SoftQNetwork(nn.Module):
     def __init__(self, env):
@@ -370,6 +165,7 @@ class Actor(nn.Module):
         # action rescaling
         self.action_scale = torch.FloatTensor((env.single_action_space.high - env.single_action_space.low) / 2.0)
         self.action_bias = torch.FloatTensor((env.single_action_space.high + env.single_action_space.low) / 2.0)
+        
 
     def forward(self, x):
         x = self.backbone(x)
@@ -387,7 +183,6 @@ class Actor(nn.Module):
         return action
 
     def get_action(self, x):
-        # x = torch.tensor(x, dtype=torch.float32)
         mean, log_std = self(x)
         std = log_std.exp()
         normal = torch.distributions.Normal(mean, std)
@@ -406,161 +201,64 @@ class Actor(nn.Module):
         self.action_bias = self.action_bias.to(device)
         return super().to(device)
     
-class DictArray(object):
-    def __init__(self, buffer_shape, element_space, device, data_dict=None):
-        self.buffer_shape = buffer_shape
-        self.device = device
-        if data_dict:
-            self.data = data_dict
-        else:
-            assert isinstance(element_space, spaces.dict.Dict)
-            self.data = {}
-            for k, v in element_space.items():
-                if isinstance(v, spaces.dict.Dict):
-                    self.data[k] = DictArray(buffer_shape, v, device)
-                else:
-                    self.data[k] = torch.zeros(buffer_shape + v.shape).to(device)
-
-    def keys(self):
-        return self.data.keys()
-    
-    def __getitem__(self, index):
-        if isinstance(index, str):
-            return self.data[index]
-        return {
-            k: v[index] for k, v in self.data.items()
-        }
-
-    def __setitem__(self, index, value):
-        if isinstance(index, str):
-            self.data[index] = value
-        for k, v in value.items():
-            self.data[k][index] = v
-    
-    @property
-    def shape(self):
-        return self.buffer_shape
-
-    def reshape(self, shape):
-        t = len(self.buffer_shape)
-        new_dict = {}
-        for k,v in self.data.items():
-            if isinstance(v, DictArray):
-                new_dict[k] = v.reshape(shape)
-            else:
-                new_dict[k] = v.reshape(shape + v.shape[t:])
-        new_buffer_shape = next(iter(new_dict.values())).shape[:len(shape)]
-        return DictArray(new_buffer_shape, None, device=self.device, data_dict=new_dict)
-    
-def get_element(x, index):
-    if isinstance(x, torch.Tensor) or isinstance(x, np.ndarray) or isinstance(x, list):
-        return x[index]
-    elif isinstance(x, dict):
-        return {k: get_element(v, index) for k, v in x.items()}
-    else:
-        raise NotImplementedError()
-    
-
-def to_numpy_dirty(x):
-    return { # we do not change dtype here
-        'rgb': x['rgb'].cpu().numpy(),
-        'depth': x['depth'].cpu().numpy(),
-        'state': x['state'],
-    }
-
-def to_tensor(x, device):
-    if isinstance(x, dict):
-        return {k: to_tensor(v, device) for k, v in x.items()}
-    elif isinstance(x, torch.Tensor):
-        return x.to(device)
-    # print(x)
-    return torch.tensor(x, dtype=torch.float32, device=device)
-
-def unsqueeze(x, dim):
-    if isinstance(x, dict):
-        return {k: unsqueeze(v, dim) for k, v in x.items()}
-    return x.unsqueeze(dim)
-
-class SmallDemoDataset_RGBD(object): # load everything into memory
-    def __init__(self, envs, data_path, process_fn, obs_space, device, buffer_size, num_envs, device_cuda, num_traj=None):
+class SmallDemoDataset(object):
+    def __init__(self, envs, data_path, obs_space, device, buffer_size, num_envs, device_cuda, num_traj=None):
         if data_path[-4:] == '.pkl':
             raise NotImplementedError()
         else:
-            from utils.ms2_data import load_demo_dataset
-            demo_dataset = load_demo_dataset(data_path, keys=['observations', 'actions', 'rewards'], num_traj=num_traj)
-
-            self.demo_size = len(demo_dataset['actions'])
-            print(obs_space)
-            # obs_buffer = DictArray(buffer_shape=(self.demo_size,), element_space=obs_space, device='cpu')
-            # obs_buffer_next = DictArray(buffer_shape=(self.demo_size,), element_space=obs_space, device='cpu')
+            from utils.ms2_data import load_demo_dataset_with_state
+            demo_dataset = load_demo_dataset_with_state(data_path, keys=['observations', 'actions', 'rewards'], num_traj=num_traj)
+            
             obs_buffer = []
             obs_buffer_next = []
+            
             obs_cnt = 0
-            obs_index = 0
-            # print(demo_dataset['observations'])
             for obs_traj in demo_dataset['observations']:
-                # _obs_traj = process_fn(obs_traj)
-                # _obs_traj['depth'] = torch.Tensor(_obs_traj['depth'].astype(np.float32) / 1024).to(torch.float16)
-                _obs_traj = obs_traj
-                # print(_obs_traj)
-                # print("done")
-                len_traj = len(_obs_traj)
-                obs_cnt += len_traj - 1
-                for i in range(len_traj - 1): # remove the final observation
-                    _obs = get_element(_obs_traj, i)
-                    _obs_next = get_element(_obs_traj, i+1)
-                    # _obs = to_tensor(_obs, device)
-                    # _obs_next = to_tensor(_obs_next, device)
-                    _obs = np.array(_obs)
-                    _obs_next = np.array(_obs_next)
-                    # obs_buffer[i] = _obs
+                len_traj = obs_traj.shape[0]
+                obs_cnt+=(len_traj-1)
+                
+                for i in range(len_traj-1):
+                    _obs = obs_traj[i:i+1,:]
+                    _obs = torch.tensor(_obs).to(device)
+                    _obs_next = obs_traj[i+1:i+2,:]
+                    _obs_next = torch.tensor(_obs_next).to(device)
                     obs_buffer.append(_obs)
                     obs_buffer_next.append(_obs_next)
-                    obs_index+=1
-            print(obs_cnt, self.demo_size)
-            assert obs_cnt == self.demo_size
+                    
+            self.device = device
             
-        self.device = device
-
-        self.demo_data = {
-            'actions': torch.tensor(demo_dataset['actions']).to(device),
-            'observations': to_tensor(np.array(obs_buffer), device),
-            'next_observations': to_tensor(np.array(obs_buffer_next), device), 
-            'rewards': torch.tensor(demo_dataset['rewards']).to(device)
-        }
-        
-        self.num_envs = num_envs
-        
-        self.collect_data = ReplayBuffer(
-            buffer_size,
-            envs.single_observation_space,
-            envs.single_action_space,
-            device_cuda,
-            num_envs,
-            handle_timeout_termination=True,
-        )
-
+            self.num_envs = num_envs
+            
+            self.demo_data = {
+                'actions': torch.tensor(np.concatenate(demo_dataset['actions'], axis=0)).to(device),
+                'observations': torch.cat(obs_buffer, dim=0).to(device),
+                'next_observations': torch.cat(obs_buffer_next, dim=0).to(device),
+                'rewards': torch.tensor(np.concatenate(demo_dataset['rewards'], axis=0)).to(device)
+            }
+            
+            self.demo_size = self.demo_data['actions'].size(0)
+            
+            assert self.demo_size == self.demo_data['observations'].size(0)
+            
+            self.collect_data = ReplayBuffer(
+                args.buffer_size,
+                envs.single_observation_space,
+                envs.single_action_space,
+                device_cuda,
+                n_envs=args.num_envs,
+                handle_timeout_termination=True,
+            )
+            
     def __len__(self):
         return self.demo_size
     
+    def add(self, obs, next_obs, actions, rewards, dones, infos):
+        self.collect_data.add(obs, next_obs, actions, rewards, dones, infos)
+    
     def sample(self, batch_size, device):
-        total_sizes = self.demo_size + self.collect_data.size()*self.num_envs
-        n_samples_demo = 0
-        if args.demo_style == "flex":
-            n_samples_demo = int(self.demo_size/total_sizes*batch_size)
-        elif args.demo_style == "ratio":
-            n_samples_demo = int(batch_size * 0.1)
-        elif args.demo_style == "none":
-            n_samples_demo = 0
-        else:
-            raise NotImplementedError()
+        # TODO: Try flex and strict
+        n_samples_demo = int(batch_size/2)
         n_samples_collect = batch_size - n_samples_demo
-        
-        # print("demo size:", self.demo_size)
-        # print("total size:", total_sizes)
-        # print("collect size:", self.collect_data.size()*self.num_envs)
-        # print("demo samples:", n_samples_demo)
-        # print("collect samples:", n_samples_collect)
         
         idxs = np.random.randint(0, self.demo_size, size=n_samples_demo)
         demo_batch = dict(
@@ -574,30 +272,15 @@ class SmallDemoDataset_RGBD(object): # load everything into memory
         
         collect_batch = self.collect_data.sample(n_samples_collect)
         
-        # total_observations = dict(
-        #     rgb=torch.cat([demo_batch['observations']['rgb'], collect_batch.observations['rgb']], dim=0),
-        #     depth=torch.cat([demo_batch['observations']['depth'], collect_batch.observations['depth']], dim=0),
-        #     state=torch.cat([demo_batch['observations']['state'], collect_batch.observations['state']], dim=0)
-        # )
-        
-        # total_next_observations = dict(
-        #     rgb=torch.cat([demo_batch['next_observations']['rgb'], collect_batch.next_observations['rgb']], dim=0),
-        #     depth=torch.cat([demo_batch['next_observations']['depth'], collect_batch.next_observations['depth']], dim=0),
-        #     state=torch.cat([demo_batch['next_observations']['state'], collect_batch.next_observations['state']], dim=0)
-        # )
-        
         batch = dict(
-            # observations=total_observations,
-            # next_observations=total_next_observations,
-            observations=torch.tensor(torch.cat([demo_batch['observations'], collect_batch.observations], dim=0), dtype=torch.float32, device=device),
-            next_observations=torch.tensor(torch.cat([demo_batch['next_observations'], collect_batch.next_observations], dim=0), dtype=torch.float32, device=device),
+            observations=torch.cat([demo_batch['observations'], collect_batch.observations], dim=0).float(),
+            next_observations=torch.cat([demo_batch['next_observations'], collect_batch.next_observations], dim=0).float(),
             actions=torch.cat([demo_batch['actions'], collect_batch.actions], dim=0),
             rewards=torch.cat([demo_batch['rewards'].unsqueeze(1), collect_batch.rewards], dim=0)
         )
         return batch
-    
-    def add(self, obs, next_obs, actions, rewards, dones, infos):
-        self.collect_data.add(obs, next_obs, actions, rewards, dones, infos)
+            
+            
 
 def collect_episode_info(info, result=None):
     if result is None:
@@ -612,16 +295,16 @@ def collect_episode_info(info, result=None):
 
 def evaluate(n, agent, eval_envs, device):
     print('======= Evaluation Starts =========')
-    agent.eval()
     result = defaultdict(list)
     obs = eval_envs.reset()
     while len(result['return']) < n:
         with torch.no_grad():
-            action = agent.get_eval_action(to_tensor(obs, device))
+            action = agent.get_eval_action(torch.Tensor(obs).to(device))
         obs, rew, done, info = eval_envs.step(action.cpu().numpy())
         collect_episode_info(info, result)
     print('======= Evaluation Ends =========')
     return result
+
 
 if __name__ == "__main__":
     args = parse_args()
@@ -662,44 +345,22 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # env setup
-    eval_envs = make_vec_env(args.env_id, args.num_eval_envs, args.seed+1000, args.control_mode, 'state', args.image_size,
-                             video_dir=f'{log_path}/videos' if args.capture_video else None, gym_vec_env=True)
-    envs = make_vec_env(args.env_id, args.num_envs, args.seed, args.control_mode, 'state', args.image_size, gym_vec_env=True)
-    # kwargs = {'context': 'forkserver'}
-    # envs = AsyncVectorEnvMPC(
-    #     [make_env(args.env_id, args.control_mode, args.seed+1) for i in range(args.num_envs)],
-    #     **kwargs
-    # )
-    # eval_env = make_env(args.env_id, args.control_mode, args.seed+1, video_dir=log_path)()
-
+    VecEnv = gym.vector.SyncVectorEnv if args.sync_venv else gym.vector.AsyncVectorEnv
+    kwargs = {} if args.sync_venv else {'context': 'forkserver'}
+    envs = VecEnv(
+        [make_env(args.env_id, args.seed + i, args.control_mode) for i in range(args.num_envs)],
+        **kwargs
+    )
+    eval_envs = VecEnv(
+        [make_env(args.env_id, args.seed + 1000 + i, args.control_mode,
+                f'{log_path}/videos' if args.capture_video and i == 0 else None) 
+        for i in range(args.num_eval_envs)],
+        **kwargs,
+    )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
-    print(envs.single_action_space)
-    print(envs.single_observation_space)
 
     max_action = float(envs.single_action_space.high[0])
-    
-    # from utils.ms2_data import load_demo_dataset_separate, load_demo_dataset
-    
-    
-    # demo_dataset = load_demo_dataset_separate(args.demo_path, keys=['observations', 'actions', 'rewards'])
-    
-    # print("demo dict:", demo_dataset.keys())
-    # print("demo image:", MS2_RGBDVecEnvObsWrapper.convert_obs(demo_dataset['observations'][0], partial(np.concatenate, axis=-1))['rgb'].shape)
-    # # print("get element:", get_element(demo_dataset['observations'][0], 0)['image'].keys())
-    # print("actions:", len(demo_dataset['actions']), demo_dataset['actions'][0].shape)
-    # print("rewards:", len(demo_dataset['rewards']), demo_dataset['rewards'][0].shape)
-    # obj_traj = MS2_RGBDVecEnvObsWrapper.convert_obs(demo_dataset['observations'][0], partial(np.concatenate, axis=-1))
-    
-    # len_traj = obj_traj['state'].shape[0]
-    
-    # print("len_traj:", len_traj)
-    
-    # for i in range(len_traj-1):
-    #     _obs = get_element(obj_traj, i)
-    #     print("obs shape:", _obs.keys())
-    #     print("obs rgb:", _obs['rgb'].shape)
-    #     assert False
-    
+
     actor = Actor(envs).to(device)
     qf1 = SoftQNetwork(envs).to(device)
     qf2 = SoftQNetwork(envs).to(device)
@@ -723,16 +384,22 @@ if __name__ == "__main__":
         a_optimizer = optim.Adam([log_alpha], lr=args.q_lr)
     else:
         alpha = args.alpha
-        
-    # demo dataset setup
-    # obs_process_fn = partial(MS2_RGBDVecEnvObsWrapper.convert_obs, concat_fn=partial(np.concatenate, axis=-1))
-    obs_process_fn = partial(np.concatenate, axis=-1)
-    dataset = SmallDemoDataset_RGBD(envs, args.demo_path, obs_process_fn,
-                                        envs.single_observation_space, 'cpu', args.buffer_size, args.num_envs, device, None) # don't put it in GPU!
+
+    envs.single_observation_space.dtype = np.float32
+    # rb = ReplayBuffer(
+    #     args.buffer_size,
+    #     envs.single_observation_space,
+    #     envs.single_action_space,
+    #     device,
+    #     n_envs=args.num_envs,
+    #     handle_timeout_termination=True,
+    # )
     
+    dataset = SmallDemoDataset(envs, args.demo_path, envs.single_observation_space, 'cpu', args.buffer_size, args.num_envs, device)
+
     # TRY NOT TO MODIFY: start the game
     start_time = time.time()
-    obs = envs.reset() # obs has both tensor and ndarray
+    obs = envs.reset()
     global_step = 0
     global_update = 0
     learning_has_started = False
@@ -740,7 +407,6 @@ if __name__ == "__main__":
     result = defaultdict(list)
     collect_time = training_time = eval_time = 0
 
-    start_time = time.time()
     while global_step < args.total_timesteps:
 
         # Collect samples from environemnts
@@ -752,25 +418,22 @@ if __name__ == "__main__":
             if not learning_has_started:
                 actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
             else:
-                actions, _, _ = actor.get_action(to_tensor(obs, device))
+                actions, _, _ = actor.get_action(torch.Tensor(obs).to(device))
                 actions = actions.detach().cpu().numpy()
 
             # TRY NOT TO MODIFY: execute the game and log data.
             next_obs, rewards, dones, infos = envs.step(actions)
+            # rewards = np.array([info['success'] for info in infos]).astype(rewards.dtype)
 
             # TRY NOT TO MODIFY: record rewards for plotting purposes
             result = collect_episode_info(infos, result)
 
             # TRY NOT TO MODIFY: save data to reply buffer; handle `terminal_observation`
-            # print(next_obs)
-            # real_next_obs = {k:v.copy() if isinstance(v, np.ndarray) else v.clone() for k,v in next_obs.items()}
-            # for idx, d in enumerate(dones):
-            #     if d:
-            #         t_obs = infos[idx]["terminal_observation"]
-            #         for key in real_next_obs:
-            #             real_next_obs[key][idx] = t_obs[key]
-            # dataset.add(to_numpy_dirty(obs), to_numpy_dirty(real_next_obs), actions, rewards, dones, infos)
-            dataset.add(obs, next_obs, actions, rewards, dones, infos)
+            real_next_obs = next_obs.copy()
+            for idx, d in enumerate(dones):
+                if d:
+                    real_next_obs[idx] = infos[idx]["terminal_observation"]
+            dataset.add(obs, real_next_obs, actions, rewards, dones, infos)
 
             # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
             obs = next_obs
@@ -785,8 +448,6 @@ if __name__ == "__main__":
         for local_update in range(num_updates_per_training):
             global_update += 1
             data = dataset.sample(args.batch_size, device)
-            
-            # data = to_tensor(data, device)
 
             # update the value networks
             with torch.no_grad():
