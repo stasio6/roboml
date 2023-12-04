@@ -47,6 +47,8 @@ def parse_args():
     # Algorithm specific arguments
     parser.add_argument("--env-id", type=str, default="PickCube-v1",
         help="the id of the environment")
+    parser.add_argument("--reward-mode", type=str, default="dense",
+        help="the reward mode of the environment")
     parser.add_argument("--num-experiments", type=int, default=100)
     parser.add_argument("--horizon", type=int, default=10)
     parser.add_argument("--population", type=int, default=200)
@@ -73,7 +75,6 @@ def parse_args():
     parser.add_argument("--control-mode", type=str, default='pd_ee_delta_pos')
     parser.add_argument("--from-ckpt", type=str, default=None)
     parser.add_argument("--expert-ckpt", type=str, default='output/PickCube-v1/SAC-ms2-new/230329-142137_1_profile/checkpoints/600000.pt')
-    parser.add_argument("--expert-demo-num", type=int)
     parser.add_argument("--image-size", type=int, default=64, # we have not implemented memory optimization for replay buffer, so use small image for now
         help="the size of observation image, e.g. 64 means 64x64")
 
@@ -144,9 +145,9 @@ def split_into_chunks(a, num_chunks):
         ret.append(a[k+i*chunk_size:k+(i+1)*chunk_size])
     return ret
 
-def make_env(env_id, control_mode, seed, video_dir=None, video_trigger=None):
+def make_env(env_id, control_mode, reward_mode, seed, video_dir=None, video_trigger=None):
     def thunk():
-        env = gym.make(env_id, reward_mode='dense', obs_mode='state', control_mode=control_mode)
+        env = gym.make(env_id, reward_mode=reward_mode, obs_mode='state', control_mode=control_mode)
         env = SimulateActionsWrapper(env) # for sim_envs
 
         if video_dir:
@@ -371,11 +372,11 @@ if __name__ == "__main__":
     # env setup
     kwargs = {'context': 'forkserver'}
     sim_envs = AsyncVectorEnvMPC(
-        [make_env(args.env_id, args.control_mode, args.seed+1) for i in range(args.num_envs)],
+        [make_env(args.env_id, args.control_mode, args.reward_mode, args.seed+1) for i in range(args.num_envs)],
         **kwargs
     )
-    eval_env = make_env(args.env_id, args.control_mode, args.seed+1, video_dir=log_path)()
-    bc_env = make_env(args.env_id, args.control_mode, args.seed+1)()
+    eval_env = make_env(args.env_id, args.control_mode, args.reward_mode, args.seed+1, video_dir=log_path)()
+    bc_env = make_env(args.env_id, args.control_mode, args.reward_mode, args.seed+1)()
     env = eval_env
     assert isinstance(env.action_space, gym.spaces.Box), "only continuous action space is supported"
     assert args.population % args.num_envs == 0
