@@ -45,7 +45,6 @@ def parse_args():
         help="the id of the environment")
     parser.add_argument("--demo-path", type=str, default='output/LiftCube-v2/SAC/221208-155359_1_try/evaluation/150016/trajectories_100.pkl',
         help="the path of demo H5 file")
-    parser.add_argument("--num-demo-traj", type=int, help="number of demo trajectories")
     parser.add_argument("--total-timesteps", type=int, default=700_000,
         help="total timesteps of the experiments")
     parser.add_argument("--buffer-size", type=int, default=None,
