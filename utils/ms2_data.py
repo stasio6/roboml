@@ -28,10 +28,18 @@ TARGET_KEY_TO_SOURCE_KEY = {
 }
 
 def load_demo_dataset(path, keys=['observations', 'actions'], num_traj=None):
-    assert num_traj is None
+    # assert num_traj is None
     raw_data = load_hdf5(path)
     # raw_data has keys like: ['traj_0', 'traj_1', ...]
     # raw_data['traj_0'] has keys like: ['actions', 'dones', 'env_states', 'infos', ...]
+    if num_traj:
+        new_raw_data = {}
+        for key in raw_data:
+            if num_traj == 0:
+                break
+            new_raw_data[key] = raw_data[key]
+            num_traj -= 1
+        raw_data = new_raw_data
     dataset = {}
     for target_key in keys:
         if 'next' in target_key:
