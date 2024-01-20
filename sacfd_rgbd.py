@@ -1,4 +1,4 @@
-ALGO_NAME = 'residual-SACfd-ms2-RGBD-layer-norm-q'
+ALGO_NAME = 'SACfd-ms2-RGBD-encoder'
 
 import os
 import argparse
@@ -72,8 +72,6 @@ def parse_args():
             help="Entropy regularization coefficient.")
     parser.add_argument("--autotune", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
         help="automatic tuning of the entropy coefficient")
-    parser.add_argument("--offset-scale-factor", type=float, default=0.1)
-    parser.add_argument("--base-scale-factor", type=float, default=1.0)
 
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
@@ -91,7 +89,6 @@ def parse_args():
     parser.add_argument("--from-ckpt", type=str, default=None)
     parser.add_argument("--image-size", type=int, default=64,
         help="the size of observation image, e.g. 64 means 64x64")
-    parser.add_argument("--bc-ckpt", type=str, default=None)
 
 
     args = parser.parse_args()
@@ -245,70 +242,6 @@ def make_mlp_with_layer_norm(in_channels, mlp_channels, act_builder=nn.ReLU, las
         c_in = c_out
     return nn.Sequential(*module_list)
 
-class BC_PlainConv(nn.Module):
-    def __init__(self,
-                 in_channels=3,
-                 out_dim=256,
-                 max_pooling=True,
-                 inactivated_output=False, # False for ConvBody, True for CNN
-                 ):
-        super().__init__()
-
-        self.cnn = nn.Sequential(
-            nn.Conv2d(in_channels, 16, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2),  # [64, 64]
-            # nn.Conv2d(16, 16, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-            # nn.MaxPool2d(2, 2),  # [32, 32]
-            nn.Conv2d(16, 32, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2),  # [16, 16]
-            nn.Conv2d(32, 64, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2),  # [8, 8]
-            nn.Conv2d(64, 128, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2),  # [4, 4]
-            nn.Conv2d(128, 128, 1, padding=0, bias=True), nn.ReLU(inplace=True),
-        )
-
-        if max_pooling:
-            self.pool = nn.AdaptiveMaxPool2d((1, 1))
-            self.fc = make_mlp(128, [out_dim], last_act=not inactivated_output)
-        else:
-            self.pool = None
-            self.fc = make_mlp(128 * 4 * 4, [out_dim], last_act=not inactivated_output)
-
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        for name, module in self.named_modules():
-            if isinstance(module, (nn.Linear, nn.Conv1d, nn.Conv2d)):
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
-
-    def forward(self, image):
-        x = self.cnn(image)
-        if self.pool is not None:
-            x = self.pool(x)
-        x = x.flatten(1)
-        x = self.fc(x)
-        return x
-    
-class BC_Agent(nn.Module):
-    def __init__(self, envs):
-        super().__init__()
-        action_dim = np.prod(envs.single_action_space.shape)
-        state_dim = envs.single_observation_space['state'].shape[0]
-        self.encoder = BC_PlainConv(in_channels=8, out_dim=256, max_pooling=False, inactivated_output=False)
-        self.final_mlp = make_mlp(256+state_dim, [512, 256, action_dim], last_act=False)
-        self.get_eval_action = self.get_action = self.forward
-
-    def forward(self, obs):
-        rgb = obs['rgb'].float() / 255.0 # (B, H, W, 3*k)
-        depth = obs['depth'].float() # (B, H, W, 1*k)
-        img = torch.cat([rgb, depth], dim=3) # (B, H, W, C)
-        img = img.permute(0, 3, 1, 2) # (B, C, H, W)
-        feature = self.encoder(img)
-        x = torch.cat([feature, obs['state']], dim=1)
-        return self.final_mlp(x)
-
 class PlainConv(nn.Module):
     def __init__(self,
                  in_channels=3,
@@ -321,16 +254,16 @@ class PlainConv(nn.Module):
         super().__init__()
         self.out_dim = out_dim
         self.cnn = nn.Sequential(
-            nn.Conv2d(in_channels, 16, 3, padding=1, bias=True), nn.LayerNorm((64,64)), nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2),  # [64, 64]
-            nn.Conv2d(16, 16, 3, padding=1, bias=True), nn.LayerNorm((32,32)), nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels, 16, 3, padding=1, bias=True), nn.LayerNorm((64, 64)), nn.ReLU(inplace=True),
             nn.MaxPool2d(2, 2),  # [32, 32]
-            nn.Conv2d(16, 32, 3, padding=1, bias=True), nn.LayerNorm((16,16)), nn.ReLU(inplace=True),
+            nn.Conv2d(16, 16, 3, padding=1, bias=True), nn.LayerNorm((32,32)), nn.ReLU(inplace=True),
             nn.MaxPool2d(2, 2),  # [16, 16]
-            nn.Conv2d(32, 64, 3, padding=1, bias=True), nn.LayerNorm((8,8)), nn.ReLU(inplace=True),
+            nn.Conv2d(16, 32, 3, padding=1, bias=True), nn.LayerNorm((16,16)), nn.ReLU(inplace=True),
             nn.MaxPool2d(2, 2),  # [8, 8]
-            nn.Conv2d(64, 128, 3, padding=1, bias=True), nn.LayerNorm((4,4)), nn.ReLU(inplace=True),
+            nn.Conv2d(32, 64, 3, padding=1, bias=True), nn.LayerNorm((8,8)), nn.ReLU(inplace=True),
             nn.MaxPool2d(2, 2),  # [4, 4]
+            nn.Conv2d(64, 128, 3, padding=1, bias=True), nn.LayerNorm((4,4)), nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),  # [2, 2]
             nn.Conv2d(128, 128, 1, padding=0, bias=True), nn.LayerNorm((2,2)), nn.ReLU(inplace=True),
         )
         feature_size = int((image_size / 32) ** 2)
@@ -398,14 +331,10 @@ class SoftQNetwork(nn.Module):
         self.encoder = encoder
         action_dim = np.prod(envs.single_action_space.shape)
         state_dim = envs.single_observation_space['state'].shape[0]
-        self.mlp = make_mlp_with_layer_norm(256+action_dim+state_dim, [512, 256, 1], last_act=False)
+        self.mlp = make_mlp_with_layer_norm(encoder.out_dim+action_dim+state_dim, [512, 256, 1], last_act=False)
 
     def forward(self, obs, action, visual_feature=None, detach_encoder=False):
         if visual_feature is None:
-            # rgb = obs['rgb'].float() / 255.0 # (B, H, W, 3*k)
-            # depth = obs['depth'].float() # (B, H, W, 1*k)
-            # img = torch.cat([rgb, depth], dim=3) # (B, H, W, C)
-            # img = img.permute(0, 3, 1, 2) # (B, C, H, W)
             visual_feature = self.encoder(obs)
         if detach_encoder:
             visual_feature = visual_feature.detach()
@@ -423,8 +352,12 @@ class Actor(nn.Module):
         action_dim = np.prod(envs.single_action_space.shape)
         state_dim = envs.single_observation_space['state'].shape[0]
         image_size = envs.single_observation_space['rgb'].shape[0]
-        self.encoder = PlainConv(in_channels=8, out_dim=visual_feature_dim, max_pooling=False, inactivated_output=False, image_size=image_size)
-        # self.encoder = BC_PlainConv(in_channels=8, out_dim=256, max_pooling=False, inactivated_output=False)
+        image_shape = envs.single_observation_space['rgb'].shape
+        if image_shape[2] == 6: # ms2 envs
+            self.encoder = PlainConv(in_channels=8, out_dim=visual_feature_dim, max_pooling=False, inactivated_output=False, image_size=image_size)
+        else: # ms1 envs
+            self.encoder = PlainConv3(in_channels=12, out_dim=256, max_pooling=False, inactivated_output=False)
+        
         self.mlp = make_mlp(visual_feature_dim+state_dim, [512, 256], last_act=True)
         self.fc_mean = nn.Linear(256, action_dim)
         self.fc_logstd = nn.Linear(256, action_dim)
@@ -433,12 +366,6 @@ class Actor(nn.Module):
         self.action_bias = torch.FloatTensor((envs.single_action_space.high + envs.single_action_space.low) / 2.0)
 
     def get_feature(self, obs, detach_encoder=False):
-        
-        # rgb = obs['rgb'].float() / 255.0 # (B, H, W, 3*k)
-        # depth = obs['depth'].float() # (B, H, W, 1*k)
-        # img = torch.cat([rgb, depth], dim=3) # (B, H, W, C)
-        # img = img.permute(0, 3, 1, 2) # (B, C, H, W)
-        
         visual_feature = self.encoder(obs)
         if detach_encoder:
             visual_feature = visual_feature.detach()
@@ -553,7 +480,7 @@ def unsqueeze(x, dim):
     return x.unsqueeze(dim)
 
 class SmallDemoDataset_RGBD(object): # load everything into memory
-    def __init__(self, envs, data_path, process_fn, obs_space, device, buffer_size, num_envs, device_cuda, num_traj=None):
+    def __init__(self, envs, data_path, process_fn, obs_space, device, buffer_size, num_envs, num_traj=None):
         if data_path[-4:] == '.pkl':
             raise NotImplementedError()
         else:
@@ -596,7 +523,7 @@ class SmallDemoDataset_RGBD(object): # load everything into memory
             buffer_size,
             envs.single_observation_space,
             envs.single_action_space,
-            device_cuda,
+            device,
             num_envs,
             handle_timeout_termination=True,
         )
@@ -604,12 +531,12 @@ class SmallDemoDataset_RGBD(object): # load everything into memory
     def __len__(self):
         return self.demo_size
     
-    def sample(self, batch_size, device):
+    def sample(self, batch_size):
         # total_sizes = self.demo_size + self.collect_data.size()*self.num_envs
         # n_samples_demo = int(self.demo_size/total_sizes*batch_size)
         # n_samples_collect = batch_size - n_samples_demo
         
-        n_samples_demo = int(batch_size*0.3)
+        n_samples_demo = int(batch_size/2)
         n_samples_collect = batch_size - n_samples_demo
         
         # print("demo size:", self.demo_size)
@@ -626,29 +553,27 @@ class SmallDemoDataset_RGBD(object): # load everything into memory
             rewards=self.demo_data['rewards'][idxs]
         )
         
-        demo_batch = to_tensor(demo_batch, device)
-        
         collect_batch = self.collect_data.sample(n_samples_collect)
         
         total_observations = dict(
-            rgb=torch.cat([demo_batch['observations']['rgb'], collect_batch.observations['rgb']], dim=0),
-            depth=torch.cat([demo_batch['observations']['depth'], collect_batch.observations['depth']], dim=0),
-            state=torch.cat([demo_batch['observations']['state'], collect_batch.observations['state']], dim=0)
+            rgb=torch.cat([demo_batch['observations']['rgb'], to_tensor(collect_batch.observations['rgb'], 'cpu')], dim=0),
+            depth=torch.cat([demo_batch['observations']['depth'], to_tensor(collect_batch.observations['depth'], 'cpu')], dim=0),
+            state=torch.cat([demo_batch['observations']['state'], to_tensor(collect_batch.observations['state'], 'cpu')], dim=0)
         )
         
         total_next_observations = dict(
-            rgb=torch.cat([demo_batch['next_observations']['rgb'], collect_batch.next_observations['rgb']], dim=0),
-            depth=torch.cat([demo_batch['next_observations']['depth'], collect_batch.next_observations['depth']], dim=0),
-            state=torch.cat([demo_batch['next_observations']['state'], collect_batch.next_observations['state']], dim=0)
+            rgb=torch.cat([demo_batch['next_observations']['rgb'], to_tensor(collect_batch.next_observations['rgb'], 'cpu')], dim=0),
+            depth=torch.cat([demo_batch['next_observations']['depth'], to_tensor(collect_batch.next_observations['depth'], 'cpu')], dim=0),
+            state=torch.cat([demo_batch['next_observations']['state'], to_tensor(collect_batch.next_observations['state'], 'cpu')], dim=0)
         )
         
         batch = dict(
             observations=total_observations,
             next_observations=total_next_observations,
-            actions=torch.cat([demo_batch['actions'], collect_batch.actions], dim=0),
-            rewards=torch.cat([demo_batch['rewards'].unsqueeze(1), collect_batch.rewards], dim=0)
+            actions=torch.cat([demo_batch['actions'], to_tensor(collect_batch.actions, 'cpu')], dim=0),
+            rewards=torch.cat([demo_batch['rewards'].unsqueeze(1), to_tensor(collect_batch.rewards, 'cpu')], dim=0)
         )
-        return batch, n_samples_demo, n_samples_collect
+        return batch
     
     def add(self, obs, next_obs, actions, rewards, dones, infos):
         self.collect_data.add(obs, next_obs, actions, rewards, dones, infos)
@@ -747,17 +672,7 @@ if __name__ == "__main__":
     #     print("obs rgb:", _obs['rgb'].shape)
     #     assert False
     
-    bc_actor = BC_Agent(envs).to(device)
-    if args.bc_ckpt is not None:
-        bc_ckpt = torch.load(args.bc_ckpt)
-        bc_actor.load_state_dict(bc_ckpt['agent'])
-        
-    for module in bc_actor.modules():
-        module.requires_grad_(False)
-    
     actor = Actor(envs).to(device)
-    # actor.encoder.load_state_dict(bc_actor.encoder.state_dict())
-    
     qf1 = SoftQNetwork(envs, actor.encoder).to(device)
     qf2 = SoftQNetwork(envs, actor.encoder).to(device)
     qf1_target = SoftQNetwork(envs, actor.encoder).to(device)
@@ -784,7 +699,7 @@ if __name__ == "__main__":
     # demo dataset setup
     obs_process_fn = partial(MS2_RGBDVecEnvObsWrapper.convert_obs, concat_fn=partial(np.concatenate, axis=-1))
     dataset = SmallDemoDataset_RGBD(envs, args.demo_path, obs_process_fn,
-                                        envs.single_observation_space, 'cpu', args.buffer_size, args.num_envs, device, args.num_demo_traj) # don't put it in GPU!
+                                        envs.single_observation_space, 'cpu', args.buffer_size, args.num_envs, args.num_demo_traj) # don't put it in GPU!
     
     # TRY NOT TO MODIFY: start the game
     start_time = time.time()
@@ -811,11 +726,8 @@ if __name__ == "__main__":
                 actions, _, _, _ = actor.get_action(to_tensor(obs, device))
                 actions = actions.detach().cpu().numpy()
 
-            bc_actions = bc_actor(to_tensor(obs, device))
-            bc_actions = bc_actions.detach().cpu().numpy()
-            final_actions = args.base_scale_factor*bc_actions + args.offset_scale_factor*actions
             # TRY NOT TO MODIFY: execute the game and log data.
-            next_obs, rewards, dones, infos = envs.step(final_actions)
+            next_obs, rewards, dones, infos = envs.step(actions)
 
             # TRY NOT TO MODIFY: record rewards for plotting purposes
             result = collect_episode_info(infos, result)
@@ -841,32 +753,24 @@ if __name__ == "__main__":
         tic = time.time()
         for local_update in range(num_updates_per_training):
             global_update += 1
-            data, n_samples_demo, n_samples_collect = dataset.sample(args.batch_size, device)
+            data = dataset.sample(args.batch_size)
             
-            bc_actions = bc_actor(data['observations'])
-            
-            data['actions'][:n_samples_demo] = (data['actions'][:n_samples_demo] - args.base_scale_factor*bc_actions[:n_samples_demo])/args.offset_scale_factor
-            
-            # data = to_tensor(data, device)
+            data = to_tensor(data, device)
 
             # update the value networks
             with torch.no_grad():
                 next_state_actions, next_state_log_pi, _, visual_feature = actor.get_action(data['next_observations'])
-                next_state_bc_actions = bc_actor(data['next_observations'])
-                next_state_final_actions = args.base_scale_factor*next_state_bc_actions + args.offset_scale_factor*next_state_actions
-                qf1_next_target = qf1_target(data['next_observations'], next_state_final_actions, visual_feature)
-                qf2_next_target = qf2_target(data['next_observations'], next_state_final_actions, visual_feature)
+                qf1_next_target = qf1_target(data['next_observations'], next_state_actions, visual_feature)
+                qf2_next_target = qf2_target(data['next_observations'], next_state_actions, visual_feature)
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
                 if args.value_always_bootstrap:
                     next_q_value = data['rewards'].flatten() + args.gamma * (min_qf_next_target).view(-1)
                 else:
                     next_q_value = data['rewards'].flatten() + (1 - data['dones'].flatten()) * args.gamma * (min_qf_next_target).view(-1)
 
-            _,visual_feature = actor.get_feature(data['observations'])
-            final_actions = args.base_scale_factor*bc_actions + args.offset_scale_factor*data['actions']
-            # bc_actions = bc_actor(data['observations'])
-            qf1_a_values = qf1(data['observations'], final_actions, visual_feature).view(-1)
-            qf2_a_values = qf2(data['observations'], final_actions, visual_feature).view(-1)
+            visual_feature = actor.encoder(data['observations'])
+            qf1_a_values = qf1(data['observations'], data['actions'], visual_feature).view(-1)
+            qf2_a_values = qf2(data['observations'], data['actions'], visual_feature).view(-1)
             qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
             qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
             qf_loss = qf1_loss + qf2_loss
@@ -878,9 +782,8 @@ if __name__ == "__main__":
             # update the policy network
             if global_update % args.policy_frequency == 0:  # TD 3 Delayed update support
                 pi, log_pi, _, visual_feature = actor.get_action(data['observations'], detach_encoder=True)
-                final_pi = args.base_scale_factor*bc_actions + args.offset_scale_factor*pi
-                qf1_pi = qf1(data['observations'], final_pi, visual_feature, detach_encoder=True)
-                qf2_pi = qf2(data['observations'], final_pi, visual_feature, detach_encoder=True)
+                qf1_pi = qf1(data['observations'], pi, visual_feature, detach_encoder=True)
+                qf2_pi = qf2(data['observations'], pi, visual_feature, detach_encoder=True)
                 min_qf_pi = torch.min(qf1_pi, qf2_pi).view(-1)
                 actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
