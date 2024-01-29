@@ -533,7 +533,7 @@ class SmallDemoDataset_RGBD(object): # load everything into memory
     
     def sample(self, batch_size):
         total_sizes = self.demo_size + self.collect_data.size()*self.num_envs # TODO: Turn back into symmetric sampling
-        n_samples_demo = int(self.demo_size/total_sizes*batch_size)
+        n_samples_demo = 0 #int(self.demo_size/total_sizes*batch_size)
         n_samples_collect = batch_size - n_samples_demo
         
         # n_samples_demo = int(batch_size/2)
