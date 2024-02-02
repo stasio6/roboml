@@ -201,7 +201,7 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
         wrappers.append(MS2_RGBDObsWrapper)
         def make_single_env(_seed):
             def thunk():
-                env = gym.make(env_id, reward_mode='dense', obs_mode='rgbd', control_mode=control_mode, camera_cfgs=cam_cfg)
+                env = gym.make(env_id, reward_mode='sparse', obs_mode='rgbd', control_mode=control_mode, camera_cfgs=cam_cfg)
                 for wrapper in wrappers: env = wrapper(env)
                 seed_env(env, _seed)
                 return env
@@ -210,7 +210,7 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
         envs = gym.vector.AsyncVectorEnv([make_single_env(seed + i) for i in range(num_envs)], context='forkserver')
     else:
         envs = mani_skill2.vector.make(
-            env_id, num_envs, obs_mode='rgbd', reward_mode='dense', control_mode=control_mode, wrappers=wrappers, camera_cfgs=cam_cfg,
+            env_id, num_envs, obs_mode='rgbd', reward_mode='sparse', control_mode=control_mode, wrappers=wrappers, camera_cfgs=cam_cfg,
         )
         envs.is_vector_env = True
         envs = MS2_RGBDVecEnvObsWrapper(envs) # must be outside of ms2_vec_env, otherwise obs will be raw
@@ -492,6 +492,7 @@ class SmallDemoDataset_RGBD(object): # load everything into memory
             obs_buffer_next = DictArray(buffer_shape=(self.demo_size,), element_space=obs_space, device='cpu')
             obs_cnt = 0
             obs_index = 0
+            print(len(demo_dataset['observations']))
             for obs_traj in demo_dataset['observations']:
                 _obs_traj = process_fn(obs_traj)
                 _obs_traj['depth'] = torch.Tensor(_obs_traj['depth'].astype(np.float32) / 1024).to(torch.float16)
@@ -533,11 +534,11 @@ class SmallDemoDataset_RGBD(object): # load everything into memory
     
     def sample(self, batch_size):
         total_sizes = self.demo_size + self.collect_data.size()*self.num_envs # TODO: Turn back into symmetric sampling
-        n_samples_demo = int(self.demo_size/total_sizes*batch_size)
-        n_samples_collect = batch_size - n_samples_demo
-        
-        # n_samples_demo = int(batch_size/2)
+        # n_samples_demo = int(self.demo_size/total_sizes*batch_size)
         # n_samples_collect = batch_size - n_samples_demo
+        
+        n_samples_demo = int(batch_size/2)
+        n_samples_collect = batch_size - n_samples_demo
 
         # print("demo size:", self.demo_size)
         # print("total size:", total_sizes)
