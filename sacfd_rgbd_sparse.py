@@ -815,6 +815,7 @@ if __name__ == "__main__":
             if len(result['return']) > 0:
                 for k, v in result.items():
                     writer.add_scalar(f"train/{k}", np.mean(v), global_step)
+                    print(f"train/{k}", np.mean(v), global_step)
                 result = defaultdict(list)
             writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
             writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
