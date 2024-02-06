@@ -46,6 +46,7 @@ def parse_args():
         help="the id of the environment")
     parser.add_argument("--demo-path", type=str, default='output/PickCube-v1/SAC-ms2-new/230329-142137_1_profile/evaluation/600000/PickCube-v1_trajectories_1000.rgbd.pd_ee_delta_pos.h5',
         help="the path of demo H5 file or pkl file")
+    parser.add_argument("--num-demo-traj", type=int, default=None)
     parser.add_argument("--total-timesteps", type=int, default=1_000_000,
         help="total timesteps of the experiments")
     parser.add_argument("--buffer-size", type=int, default=None,
@@ -256,7 +257,6 @@ class SmallDemoDataset(object):
         self.collect_data.add(obs, next_obs, actions, rewards, dones, infos)
     
     def sample(self, batch_size, device):
-        # TODO: Try flex and strict
         n_samples_demo = int(batch_size/2)
         n_samples_collect = batch_size - n_samples_demo
         
@@ -273,8 +273,8 @@ class SmallDemoDataset(object):
         collect_batch = self.collect_data.sample(n_samples_collect)
         
         batch = dict(
-            observations=torch.cat([demo_batch['observations'], collect_batch.observations], dim=0).float(),
-            next_observations=torch.cat([demo_batch['next_observations'], collect_batch.next_observations], dim=0).float(),
+            observations=torch.cat([demo_batch['observations'], collect_batch.observations], dim=0),
+            next_observations=torch.cat([demo_batch['next_observations'], collect_batch.next_observations], dim=0),
             actions=torch.cat([demo_batch['actions'], collect_batch.actions], dim=0),
             rewards=torch.cat([demo_batch['rewards'].unsqueeze(1), collect_batch.rewards], dim=0)
         )
@@ -395,7 +395,7 @@ if __name__ == "__main__":
     #     handle_timeout_termination=True,
     # )
     
-    dataset = SmallDemoDataset(envs, args.demo_path, envs.single_observation_space, 'cpu', args.buffer_size, args.num_envs, device)
+    dataset = SmallDemoDataset(envs, args.demo_path, envs.single_observation_space, 'cpu', args.buffer_size, args.num_envs, device, num_traj=args.num_demo_traj)
 
     # TRY NOT TO MODIFY: start the game
     start_time = time.time()
