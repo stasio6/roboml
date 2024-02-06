@@ -273,8 +273,8 @@ class SmallDemoDataset(object):
         collect_batch = self.collect_data.sample(n_samples_collect)
         
         batch = dict(
-            observations=torch.cat([demo_batch['observations'], collect_batch.observations], dim=0),
-            next_observations=torch.cat([demo_batch['next_observations'], collect_batch.next_observations], dim=0),
+            observations=torch.cat([demo_batch['observations'], collect_batch.observations], dim=0).float(),
+            next_observations=torch.cat([demo_batch['next_observations'], collect_batch.next_observations], dim=0).float(),
             actions=torch.cat([demo_batch['actions'], collect_batch.actions], dim=0),
             rewards=torch.cat([demo_batch['rewards'].unsqueeze(1), collect_batch.rewards], dim=0)
         )
