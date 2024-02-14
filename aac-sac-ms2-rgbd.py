@@ -10,6 +10,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 
 import gym
 import numpy as np
+# import pybullet_envs  # noqa
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -21,6 +22,11 @@ import datetime
 from collections import defaultdict
 from functools import partial
 
+import pprint
+import copy 
+
+CONTROL_MODE = defaultdict(lambda: 'pd_ee_delta_pos')
+CONTROL_MODE["TurnFaucet-v0"] = 'pd_ee_delta_pose'
 
 def parse_args():
     # fmt: off
@@ -40,14 +46,14 @@ def parse_args():
     parser.add_argument("--wandb-entity", type=str, default=None,
         help="the entity (team) of wandb's project")
     parser.add_argument("--capture-video", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
-        help="whether to capture videos of the agent performances (check out `videos` folder)")
+        help="weather to capture videos of the agent performances (check out `videos` folder)")
 
     # Algorithm specific arguments
-    parser.add_argument("--env-id", type=str, default="PickCube-v1",
+    parser.add_argument("--env-id", type=str, default="PickCube-v0",
         help="the id of the environment")
     parser.add_argument("--total-timesteps", type=int, default=5_000_000,
         help="total timesteps of the experiments")
-    parser.add_argument("--buffer-size", type=int, default=300_000,
+    parser.add_argument("--buffer-size", type=int, default=250_000,
         help="the replay memory buffer size")
     parser.add_argument("--gamma", type=float, default=0.8,
         help="the discount factor gamma")
@@ -69,23 +75,24 @@ def parse_args():
             help="Entropy regularization coefficient.")
     parser.add_argument("--autotune", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
         help="automatic tuning of the entropy coefficient")
+    parser.add_argument("--use-plainconv-full", action='store_true', default=False,
+        help="whether to use plain conve v2. Default to false")
 
     parser.add_argument("--output-dir", type=str, default='output')
-    parser.add_argument("--eval-freq", type=int, default=30_000)
+    parser.add_argument("--eval-freq", type=int, default=10_000)
     parser.add_argument("--num-envs", type=int, default=16)
     parser.add_argument("--num-eval-episodes", type=int, default=10)
     parser.add_argument("--num-eval-envs", type=int, default=1)
     parser.add_argument("--sync-venv", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
     parser.add_argument("--num-steps-per-update", type=float, default=4)
     parser.add_argument("--training-freq", type=int, default=64)
-    parser.add_argument("--log-freq", type=int, default=2000)
+    parser.add_argument("--log-freq", type=int, default=1000)
     parser.add_argument("--save-freq", type=int, default=500_000)
     parser.add_argument("--value-always-bootstrap", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="in ManiSkill variable episode length setting, set to True if positive reawrd, False if negative reward.")
-    parser.add_argument("--control-mode", type=str, default='pd_ee_delta_pos')
-    parser.add_argument("--from-actor-ckpt", type=str, default=None)
-    parser.add_argument("--from-critic-ckpt", type=str, default=None)
-    parser.add_argument("--image-size", type=int, default=64,
+    parser.add_argument("--control-mode", type=str, default=None)
+    parser.add_argument("--from-ckpt", type=str, default=None)
+    parser.add_argument("--image-size", type=int, default=None,
         help="the size of observation image, e.g. 64 means 64x64")
 
 
@@ -99,6 +106,8 @@ def parse_args():
     assert args.num_eval_episodes % args.num_eval_envs == 0
     assert args.training_freq % args.num_envs == 0
     assert args.training_freq % args.num_steps_per_update == 0
+    if args.control_mode is None:
+        args.control_mode = CONTROL_MODE[args.env_id]
     # fmt: on
     return args
 
@@ -106,22 +115,28 @@ import mani_skill2.envs
 from mani_skill2.utils.common import flatten_state_dict, flatten_dict_space_keys
 from mani_skill2.utils.wrappers import RecordEpisode
 from mani_skill2.vector.vec_env import VecEnvObservationWrapper
-from gym.core import Wrapper, ObservationWrapper
+from gym.core import Env, Wrapper, ObservationWrapper
 from gym import spaces
 
-class MS2_AAC_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
+class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
     def __init__(self, env):
         super().__init__(env)
         assert self.obs_mode == 'rgbd'
+        if hasattr(env.unwrapped, "_get_obs_state_dict"):
+            oracle_state_obs_dim = flatten_state_dict(env.unwrapped._get_obs_state_dict()).shape
+            oracle_state_obs_dim = spaces.Box(-float("inf"), float("inf"), shape=oracle_state_obs_dim, dtype=np.float32)
+        else: 
+            try:
+                oracle_state_obs_dim = env.env_method("get_oracle_state_space")[0]
+            except KeyError:
+                raise ValueError("Env does not have oracle_state observation space")
+            
         self.observation_space = self.build_obs_space(env)
-        example_oracle_state = self.venv.env_method('get_state_mode_obs')[0] # hack for AAC
-        self.observation_space['oracle_state'] = spaces.Box(-float("inf"), float("inf"), shape=example_oracle_state.shape, dtype=np.float32)
+        self.oracle_state_dim = oracle_state_obs_dim
         self.concat_fn = partial(torch.cat, dim=-1)
 
     def observation(self, obs):
-        obs = self.convert_obs(obs, self.concat_fn)
-        obs['oracle_state'] = np.vstack(self.venv.env_method('get_state_mode_obs')) # hack for AAC
-        return obs
+        return self.convert_obs(obs, self.concat_fn)
     
     @staticmethod
     def build_obs_space(env, depth_dtype=np.float16):
@@ -130,15 +145,16 @@ class MS2_AAC_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
         for k in ['agent', 'extra']:
             state_dim += sum([v.shape[0] for v in flatten_dict_space_keys(obs_space[k]).spaces.values()])
 
-        single_img_space = list(env.observation_space['image'].values())[0]
-        h, w, _ = single_img_space['rgb'].shape
+        h, w, _ = env.observation_space['image']['hand_camera']['rgb'].shape
         k = len(env.observation_space['image'])
 
-        return spaces.Dict({
+        obs_dict = spaces.Dict({
             'state': spaces.Box(-float("inf"), float("inf"), shape=(state_dim,), dtype=np.float32),
             'rgb': spaces.Box(0, 255, shape=(h,w,k*3), dtype=np.uint8),
             'depth': spaces.Box(-float("inf"), float("inf"), shape=(h,w,k), dtype=depth_dtype),
         })
+        return obs_dict 
+            
     # NOTE: We have to use float32 for gym AsyncVecEnv since it does not support float16, but we can use float16 for MS2 vec env
     
     @staticmethod
@@ -151,26 +167,25 @@ class MS2_AAC_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
         if isinstance(new_img_dict['depth'], torch.Tensor): # MS2 vec env uses float16, but gym AsyncVecEnv uses float32
             new_img_dict['depth'] = new_img_dict['depth'].to(torch.float16)
 
-        states = [flatten_state_dict(obs["agent"])]
-        if len(obs["extra"]) > 0:
-            states.append(flatten_state_dict(obs["extra"]))
-        new_img_dict['state'] = np.hstack(states)
+        state = np.hstack([
+            flatten_state_dict(obs["agent"]),
+            flatten_state_dict(obs["extra"]),
+        ])
+        new_img_dict['state'] = state
 
         return new_img_dict
+
+
 
 class MS2_RGBDObsWrapper(ObservationWrapper):
     def __init__(self, env):
         super().__init__(env)
         assert self.obs_mode == 'rgbd'
-        self.observation_space = MS2_AAC_RGBDVecEnvObsWrapper.build_obs_space(env, depth_dtype=np.float32)
-        example_oracle_state = self.env.get_state_mode_obs() # hack for AAC
-        self.observation_space['oracle_state'] = spaces.Box(-float("inf"), float("inf"), shape=example_oracle_state.shape, dtype=np.float32)
+        self.observation_space = MS2_RGBDVecEnvObsWrapper.build_obs_space(env, depth_dtype=np.float32)
         self.concat_fn = partial(np.concatenate, axis=-1)
 
     def observation(self, obs):
-        obs = MS2_AAC_RGBDVecEnvObsWrapper.convert_obs(obs, self.concat_fn)
-        obs['oracle_state'] = self.env.get_state_mode_obs() # hack for AAC
-        return obs
+        return MS2_RGBDVecEnvObsWrapper.convert_obs(obs, self.concat_fn)
 
 
 from mani_skill2.vector.wrappers.sb3 import select_index_from_dict
@@ -180,17 +195,23 @@ class AutoResetVecEnvWrapper(Wrapper):
         vec_obs, rews, dones, infos = self.env.step(actions)
         if not dones.any():
             return vec_obs, rews, dones, infos
+        
+        state_obs = self.env.env_method('get_state_mode_obs') # hack for AAC
 
         for i, done in enumerate(dones):
             if done:
                 # NOTE: ensure that it will not be inplace modified when reset
+                infos[i]["terminal_state_observation"] = state_obs[i]
                 infos[i]["terminal_observation"] = select_index_from_dict(vec_obs, i)
-
         reset_indices = np.where(dones)[0]
         vec_obs = self.env.reset(indices=reset_indices)
         return vec_obs, rews, dones, infos
 
 class GetStateObsWrapper(Wrapper):
+    def get_oracle_state_space(self):
+        state_shape = self.get_state_mode_obs().shape
+        return spaces.Box(-float("inf"), float("inf"), shape=state_shape, dtype=np.float32)
+    
     def get_state_mode_obs(self):
         raw_env = self.env.unwrapped
         original_obs_mode = raw_env._obs_mode
@@ -208,19 +229,15 @@ def seed_env(env, seed):
 def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, video_dir=None, gym_vec_env=False):
     assert gym_vec_env or video_dir is None, 'Saving video is only supported for gym vec env'
     cam_cfg = {'width': image_size, 'height': image_size} if image_size else None
-    vec_env_reward_mode = 'dense'
-    if 'Cabinet' in env_id or 'Bucket' in env_id or 'Chair' in env_id:
-        cam_cfg = {'width': 125, 'height': 50}
-        gym_vec_env = True
     wrappers = [
         gym.wrappers.RecordEpisodeStatistics,
         gym.wrappers.ClipAction,
-        GetStateObsWrapper,
     ]
     if gym_vec_env:
         if video_dir:
             wrappers.append(partial(RecordEpisode, output_dir=video_dir, save_trajectory=False, info_on_video=True))
         wrappers.append(MS2_RGBDObsWrapper)
+
         def make_single_env(_seed):
             def thunk():
                 env = gym.make(env_id, reward_mode='dense', obs_mode='rgbd', control_mode=control_mode, camera_cfgs=cam_cfg)
@@ -231,18 +248,22 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
         # must use AsyncVectorEnv, so that the renderers will be in different processes
         envs = gym.vector.AsyncVectorEnv([make_single_env(seed + i) for i in range(num_envs)], context='forkserver')
     else:
+        wrappers.append(GetStateObsWrapper)
         envs = mani_skill2.vector.make(
-            env_id, num_envs, obs_mode='rgbd', reward_mode=vec_env_reward_mode, control_mode=control_mode, wrappers=wrappers, camera_cfgs=cam_cfg,
+            env_id, num_envs, obs_mode='rgbd', reward_mode='dense', control_mode=control_mode, wrappers=wrappers, camera_cfgs=cam_cfg,
         )
         envs.is_vector_env = True
-        envs = MS2_AAC_RGBDVecEnvObsWrapper(envs) # must be outside of ms2_vec_env, otherwise obs will be raw
+        envs = MS2_RGBDVecEnvObsWrapper(envs) # must be outside of ms2_vec_env, otherwise obs will be raw
         envs = AutoResetVecEnvWrapper(envs) # must be outside of ObsWrapper, otherwise info['terminal_obs'] will be raw obs
         envs.single_action_space = envs.action_space
         envs.single_observation_space = envs.observation_space
         seed_env(envs, seed)
-    envs.is_ms1_env = 'Cabinet' in env_id or 'Bucket' in env_id or 'Chair' in env_id
 
     return envs
+
+def get_state_obs(envs):
+    return np.vstack(envs.env_method('get_state_mode_obs'))
+
 
 def make_mlp(in_channels, mlp_channels, act_builder=nn.ReLU, last_act=True):
     c_in = in_channels
@@ -258,11 +279,10 @@ class PlainConv(nn.Module):
     def __init__(self,
                  in_channels=3,
                  out_dim=256,
-                 max_pooling=False,
+                 max_pooling=True,
                  inactivated_output=False, # False for ConvBody, True for CNN
-                 image_size=128,
+                 input_size = 128,
                  ):
-        assert image_size in [64, 128]
         super().__init__()
         self.out_dim = out_dim
         self.cnn = nn.Sequential(
@@ -278,7 +298,10 @@ class PlainConv(nn.Module):
             nn.MaxPool2d(2, 2),  # [4, 4]
             nn.Conv2d(128, 128, 1, padding=0, bias=True), nn.ReLU(inplace=True),
         )
-        feature_size = int((image_size / 32) ** 2)
+        
+        input_size = input_size or 128
+        # currently hard coded for 128 and 64 input
+        feature_size = 16 if input_size == 128 else 4
         if max_pooling:
             self.pool = nn.AdaptiveMaxPool2d((1, 1))
             self.fc = make_mlp(128, [out_dim], last_act=not inactivated_output)
@@ -294,60 +317,60 @@ class PlainConv(nn.Module):
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
 
-    def forward(self, image):
-        x = self.cnn(image)
+    def forward(self, obs):
+        # Preprocess the obs before passing to the real network, similar to the Dataset class in supervised learning
+        rgb = obs['rgb'].float() / 255.0 # (B, H, W, 3*k)
+        depth = obs['depth'].float() # (B, H, W, 1*k)
+        img = torch.cat([rgb, depth], dim=3) # (B, H, W, C)
+        img = img.permute(0, 3, 1, 2) # (B, C, H, W)
+        x = self.cnn(img)
         if self.pool is not None:
             x = self.pool(x)
         x = x.flatten(1)
         x = self.fc(x)
         return x
 
-class PlainConv3(PlainConv): # for 50x125 image
+	
+class PlainConv2(PlainConv):
     def __init__(self,
                  in_channels=3,
                  out_dim=256,
                  max_pooling=False,
                  inactivated_output=False, # False for ConvBody, True for CNN
+                 input_size = None,
                  ):
         nn.Module.__init__(self)
         self.out_dim = out_dim
         self.cnn = nn.Sequential(
-            nn.Conv2d(in_channels, 16, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2),  # [25, 62]
-            nn.Conv2d(16, 16, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2),  # [12, 31]
-            nn.Conv2d(16, 32, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2),  # [6, 15]
-            nn.Conv2d(32, 64, 3, padding=1, bias=True), nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2),  # [3, 7]
-            nn.Conv2d(64, 128, 3, padding=1, bias=True), nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels, 16, 3, stride=2, padding=1, bias=True), nn.ReLU(inplace=True), # [64, 64]
+            nn.Conv2d(16, 16, 3, stride=2, padding=1, bias=True), nn.ReLU(inplace=True), # [32, 32]
+            nn.Conv2d(16, 32, 3, stride=2, padding=1, bias=True), nn.ReLU(inplace=True), # [16, 16]
+            nn.Conv2d(32, 64, 3, stride=2, padding=1, bias=True), nn.ReLU(inplace=True), # [8, 8]
+            nn.Conv2d(64, 128, 3, stride=2, padding=1, bias=True), nn.ReLU(inplace=True), # [4, 4]
         )
+        input_size = input_size or 128
+        # currently hard coded for 128 and 64 input
+        feature_size = 16 if input_size == 128 else 4
         if max_pooling:
             self.pool = nn.AdaptiveMaxPool2d((1, 1))
             self.fc = make_mlp(128, [out_dim], last_act=not inactivated_output)
         else:
             self.pool = None
-            self.fc = make_mlp(128 * 3 * 7, [out_dim], last_act=not inactivated_output)
+            self.fc = make_mlp(128 * feature_size, [out_dim], last_act=not inactivated_output)
 
         self.reset_parameters()
 
 # ALGO LOGIC: initialize agent here:
 class SoftQNetwork(nn.Module):
-    def __init__(self, env):
+    def __init__(self, envs):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(np.array(env.single_observation_space['oracle_state'].shape).prod() + np.prod(env.single_action_space.shape), 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1),
-        )
+        action_dim = np.prod(envs.single_action_space.shape)
+        state_dim = envs.env_method("get_oracle_state_space")[0].shape[0]
+        self.mlp = make_mlp(action_dim+state_dim, [512, 256, 1], last_act=False)
 
-    def forward(self, x, a):
-        x = torch.cat([x, a], 1)
-        return self.net(x)
+    def forward(self, obs, action):
+        x = torch.cat([obs, action], dim=1)
+        return self.mlp(x)
 
 
 LOG_STD_MAX = 2
@@ -355,48 +378,44 @@ LOG_STD_MIN = -5
 
 
 class Actor(nn.Module):
-    def __init__(self, envs):
+    def __init__(self, envs, visual_feature_dim=256):
         super().__init__()
         action_dim = np.prod(envs.single_action_space.shape)
         state_dim = envs.single_observation_space['state'].shape[0]
-        image_shape = envs.single_observation_space['rgb'].shape
-        if image_shape[2] == 6: # ms2 envs
-            self.encoder = PlainConv(in_channels=8, out_dim=256, max_pooling=False, inactivated_output=False, image_size=image_shape[0])
-        else: # ms1 envs
-            self.encoder = PlainConv3(in_channels=12, out_dim=256, max_pooling=False, inactivated_output=False)
-        self.mlp = make_mlp(256+state_dim, [512, 256], last_act=True)
+        if not args.use_plainconv_full:
+            self.encoder = PlainConv2(in_channels=8, out_dim=visual_feature_dim, max_pooling=True, inactivated_output=False, input_size=args.image_size)
+        else:
+            self.encoder = PlainConv2(in_channels=8, out_dim=visual_feature_dim, max_pooling=False, inactivated_output=False, input_size=args.image_size)
+        self.mlp = make_mlp(visual_feature_dim+state_dim, [512, 256], last_act=True)
         self.fc_mean = nn.Linear(256, action_dim)
         self.fc_logstd = nn.Linear(256, action_dim)
         # action rescaling
         self.action_scale = torch.FloatTensor((envs.single_action_space.high - envs.single_action_space.low) / 2.0)
         self.action_bias = torch.FloatTensor((envs.single_action_space.high + envs.single_action_space.low) / 2.0)
 
-    def get_feature(self, obs):
-        # Preprocess the obs before passing to the real network, similar to the Dataset class in supervised learning
-        rgb = obs['rgb'].float() / 255.0 # (B, H, W, 3*k)
-        depth = obs['depth'].float() # (B, H, W, 1*k)
-        img = torch.cat([rgb, depth], dim=3) # (B, H, W, C)
-        img = img.permute(0, 3, 1, 2) # (B, C, H, W)
-        feature = self.encoder(img)
-        return torch.cat([feature, obs['state']], dim=1)
+    def get_feature(self, obs, detach_encoder=False):
+        visual_feature = self.encoder(obs)
+        if detach_encoder:
+            visual_feature = visual_feature.detach()
+        x = torch.cat([visual_feature, obs['state']], dim=1)
+        return self.mlp(x), visual_feature
 
-    def forward(self, obs):
-        x = self.get_feature(obs)
-        x = self.mlp(x)
+    def forward(self, obs, detach_encoder=False):
+        x, visual_feature = self.get_feature(obs, detach_encoder)
         mean = self.fc_mean(x)
         log_std = self.fc_logstd(x)
         log_std = torch.tanh(log_std)
         log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)  # From SpinUp / Denis Yarats
 
-        return mean, log_std
+        return mean, log_std, visual_feature
 
     def get_eval_action(self, obs):
-        mean, log_std = self(obs)
+        mean, log_std, _ = self(obs)
         action = torch.tanh(mean) * self.action_scale + self.action_bias
         return action
 
-    def get_action(self, obs):
-        mean, log_std = self(obs)
+    def get_action(self, obs, detach_encoder=False):
+        mean, log_std, visual_feature = self(obs, detach_encoder)
         std = log_std.exp()
         normal = torch.distributions.Normal(mean, std)
         x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
@@ -407,7 +426,7 @@ class Actor(nn.Module):
         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
         log_prob = log_prob.sum(1, keepdim=True)
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
-        return action, log_prob, mean
+        return action, log_prob, mean, visual_feature
 
     def to(self, device):
         self.action_scale = self.action_scale.to(device)
@@ -461,7 +480,8 @@ def evaluate(n, agent, eval_envs, device):
 
 if __name__ == "__main__":
     args = parse_args()
-
+    print("Arguments are: ", flush=True)
+    pprint.pprint(args.__dict__, indent=4)
     now = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
     tag = '{:s}_{:d}'.format(now, args.seed)
     if args.exp_name: tag += '_' + args.exp_name
@@ -512,14 +532,9 @@ if __name__ == "__main__":
     qf2 = SoftQNetwork(envs).to(device)
     qf1_target = SoftQNetwork(envs).to(device)
     qf2_target = SoftQNetwork(envs).to(device)
-    if args.from_actor_ckpt is not None:
-        ckpt = torch.load(args.from_actor_ckpt)
-        for key in ['agent', 'actor']:
-            if key in ckpt:
-                actor.load_state_dict(ckpt[key])
-                break
-    if args.from_critic_ckpt is not None:
-        ckpt = torch.load(args.from_critic_ckpt)
+    if args.from_ckpt is not None:
+        ckpt = torch.load(args.from_ckpt)
+        actor.load_state_dict(ckpt['actor'])
         qf1.load_state_dict(ckpt['qf1'])
         qf2.load_state_dict(ckpt['qf2'])
     qf1_target.load_state_dict(qf1.state_dict())
@@ -537,9 +552,11 @@ if __name__ == "__main__":
         alpha = args.alpha
 
     envs.single_observation_space.dtype = np.float32
+    rb_obs_shape = copy.deepcopy(envs.single_observation_space)
+    rb_obs_shape["oracle_state"] = copy.deepcopy(envs.oracle_state_dim)
     rb = DictReplayBuffer(
         args.buffer_size,
-        envs.single_observation_space,
+        rb_obs_shape,
         envs.single_action_space,
         device,
         n_envs=args.num_envs,
@@ -549,6 +566,7 @@ if __name__ == "__main__":
     # TRY NOT TO MODIFY: start the game
     start_time = time.time()
     obs = envs.reset() # obs has both tensor and ndarray
+    obs["oracle_state"] = get_state_obs(envs)
     global_step = 0
     global_update = 0
     learning_has_started = False
@@ -568,11 +586,12 @@ if __name__ == "__main__":
             if not learning_has_started:
                 actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
             else:
-                actions, _, _ = actor.get_action(to_tensor(obs, device))
+                actions, _, _, _ = actor.get_action(to_tensor(obs, device))
                 actions = actions.detach().cpu().numpy()
 
             # TRY NOT TO MODIFY: execute the game and log data.
             next_obs, rewards, dones, infos = envs.step(actions)
+            next_obs["oracle_state"] = get_state_obs(envs)
 
             # TRY NOT TO MODIFY: record rewards for plotting purposes
             result = collect_episode_info(infos, result)
@@ -582,12 +601,13 @@ if __name__ == "__main__":
             for idx, d in enumerate(dones):
                 if d:
                     t_obs = infos[idx]["terminal_observation"]
+                    t_state_obs = infos[idx]["terminal_state_observation"]
                     for key in real_next_obs:
-                        real_next_obs[key][idx] = t_obs[key]
-            if envs.is_ms1_env:
-                rb.add(obs, real_next_obs, actions, rewards, dones, infos)
-            else:
-                rb.add(to_numpy_dirty(obs), to_numpy_dirty(real_next_obs), actions, rewards, dones, infos)
+                        if key == "oracle_state":
+                            real_next_obs[key][idx] = t_state_obs
+                        else:
+                            real_next_obs[key][idx] = t_obs[key]
+            rb.add(to_numpy_dirty(obs), to_numpy_dirty(real_next_obs), actions, rewards, dones, infos)
 
             # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
             obs = next_obs
@@ -605,7 +625,7 @@ if __name__ == "__main__":
 
             # update the value networks
             with torch.no_grad():
-                next_state_actions, next_state_log_pi, _ = actor.get_action(data.next_observations)
+                next_state_actions, next_state_log_pi, _, visual_feature = actor.get_action(data.next_observations)
                 qf1_next_target = qf1_target(data.next_observations["oracle_state"], next_state_actions)
                 qf2_next_target = qf2_target(data.next_observations["oracle_state"], next_state_actions)
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
@@ -623,10 +643,10 @@ if __name__ == "__main__":
             q_optimizer.zero_grad()
             qf_loss.backward()
             q_optimizer.step()
-
+            
             # update the policy network
             if global_update % args.policy_frequency == 0:  # TD 3 Delayed update support
-                pi, log_pi, _ = actor.get_action(data.observations)
+                pi, log_pi, _, visual_feature = actor.get_action(data.observations)
                 qf1_pi = qf1(data.observations["oracle_state"], pi)
                 qf2_pi = qf2(data.observations["oracle_state"], pi)
                 min_qf_pi = torch.min(qf1_pi, qf2_pi).view(-1)
@@ -635,10 +655,10 @@ if __name__ == "__main__":
                 actor_optimizer.zero_grad()
                 actor_loss.backward()
                 actor_optimizer.step()
-
+                
                 if args.autotune:
                     with torch.no_grad():
-                        _, log_pi, _ = actor.get_action(data.observations)
+                        _, log_pi, _, _ = actor.get_action(data.observations)
                     alpha_loss = (-log_alpha * (log_pi + target_entropy)).mean()
 
                     a_optimizer.zero_grad()
