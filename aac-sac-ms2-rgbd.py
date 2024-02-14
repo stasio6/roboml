@@ -145,7 +145,8 @@ class MS2_RGBDVecEnvObsWrapper(VecEnvObservationWrapper):
         for k in ['agent', 'extra']:
             state_dim += sum([v.shape[0] for v in flatten_dict_space_keys(obs_space[k]).spaces.values()])
 
-        h, w, _ = env.observation_space['image']['hand_camera']['rgb'].shape
+        single_img_space = list(env.observation_space['image'].values())[0]
+        h, w, _ = single_img_space['rgb'].shape
         k = len(env.observation_space['image'])
 
         obs_dict = spaces.Dict({
