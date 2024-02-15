@@ -222,6 +222,9 @@ def make_vec_env(env_id, num_envs, seed, control_mode=None, image_size=None, vid
     elif 'Bucket' in env_id or 'Chair' in env_id:
         cam_cfg = {'width': 125, 'height': 50}
         gym_vec_env = True
+    if 'Door_unified' in env_id:
+        vec_env_reward_mode = 'dense'
+        gym_vec_env = True
     wrappers = [
         gym.wrappers.RecordEpisodeStatistics,
         gym.wrappers.ClipAction,
