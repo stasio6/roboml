@@ -8,7 +8,8 @@ from distutils.util import strtobool
 
 os.environ["OMP_NUM_THREADS"] = "1"
 
-import gymnasium as gym
+# import gymnasium as gym
+import gym # TODO: Changed
 import numpy as np
 import torch
 import torch.nn as nn
@@ -19,7 +20,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import datetime
 from collections import defaultdict
-from rookie.utils.profiling import NonOverlappingTimeProfiler
+# from rookie.utils.profiling import NonOverlappingTimeProfiler
 
 def parse_args():
     # fmt: off
@@ -335,7 +336,7 @@ if __name__ == "__main__":
     learning_has_started = False
     num_updates_per_training = int(args.training_freq * args.utd)
     result = defaultdict(list)
-    timer = NonOverlappingTimeProfiler()
+    # timer = NonOverlappingTimeProfiler()
 
     while global_step < args.total_timesteps:
 
@@ -371,7 +372,7 @@ if __name__ == "__main__":
             # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
             obs = next_obs
         
-        timer.end('collect')
+        # timer.end('collect')
 
         # ALGO LOGIC: training.
         if global_step < args.learning_starts:
@@ -438,7 +439,7 @@ if __name__ == "__main__":
                 for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
         
-        timer.end('train')
+        # timer.end('train')
 
         # Log training-related data
         if (global_step - args.training_freq) // args.log_freq < global_step // args.log_freq:
@@ -454,7 +455,7 @@ if __name__ == "__main__":
             writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
             writer.add_scalar("losses/alpha", alpha, global_step)
             # print("SPS:", int(global_step / (time.time() - start_time)))
-            timer.dump_to_writer(writer, global_step)
+            # timer.dump_to_writer(writer, global_step)
             if args.autotune:
                 writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
 
@@ -464,7 +465,7 @@ if __name__ == "__main__":
             result = evaluate(args.num_eval_episodes, actor, eval_envs, device)
             for k, v in result.items():
                 writer.add_scalar(f"eval/{k}", np.mean(v), global_step)
-            timer.end('eval')
+            # timer.end('eval')
         
         # Checkpoint
         if args.save_freq and ( global_step >= args.total_timesteps or \
