@@ -568,6 +568,10 @@ if __name__ == "__main__":
     checkpoint = torch.load(args.expert_ckpt)
     for key in ['agent', 'actor', 'q']:
         if key in checkpoint:
+            if "action_scale" in checkpoint[key]:
+                del checkpoint[key]["action_scale"]
+            if "action_bias" in checkpoint[key]:
+                del checkpoint[key]["action_bias"]
             expert.load_state_dict(checkpoint[key])
             break
 
