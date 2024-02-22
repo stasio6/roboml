@@ -211,15 +211,15 @@ if __name__ == "__main__":
     ##############################################
 
     env_name = 'PickCube'
-    expert_max_global_step = 250_000
-    expert_max__runtime = 2 * 3600
-    max_global_step = 500_000
+    expert_max_global_step = 320_000
+    expert_max__runtime = 0.75 * 3600
+    max_global_step = 600_000
     smooth_window = 10
     max__runtime = 3 * 3600
     
     # env_name = 'StackCube'
     # expert_max_global_step = 4_000_000
-    # expert_max__runtime = 10.44 * 3600
+    # expert_max__runtime = 10.22 * 3600
     # max_global_step = 6_000_000
     # smooth_window = 10
     # max__runtime = 15 * 3600
@@ -237,25 +237,32 @@ if __name__ == "__main__":
     # max__runtime = 20 * 3600
 
     # env_name = 'OpenDrawer'
-    # expert_max_global_step = 5_000_000
-    # expert_max__runtime = 16.5 * 3600
-    # max_global_step = 10_000_000
-    # max__runtime = 25 * 3600
+    # expert_max_global_step = 7_000_000
+    # expert_max__runtime = 20 * 3600
+    # max_global_step = 12_000_000
+    # max__runtime = 35 * 3600
     # smooth_window = 1
 
     # env_name = 'MoveBucket'
-    # expert_max_global_step = 25_000_000
-    # expert_max__runtime = 85 * 3600
-    # max_global_step = 30_000_000
+    # expert_max_global_step = 30_000_000
+    # expert_max__runtime = 110 * 3600
+    # max_global_step = 40_000_000
     # smooth_window = 5
-    # max__runtime = 100 * 3600
+    # max__runtime = 150 * 3600
 
     # env_name = 'PegInsertion'
     # expert_max_global_step = 12_000_000
     # expert_max__runtime = 32 * 3600
-    # max_global_step = 15_000_000
+    # max_global_step = 18_000_000
     # max__runtime = 55 * 3600
     # smooth_window = 10
+
+    env_name = 'PickClutterYCB'
+    expert_max_global_step = 8_000_000
+    expert_max__runtime = 19 * 3600
+    max_global_step = 15_000_000
+    max__runtime = 45 * 3600
+    smooth_window = 10
 
     # env_name = 'OpenDoor'
     # expert_max_global_step = 2_000_000

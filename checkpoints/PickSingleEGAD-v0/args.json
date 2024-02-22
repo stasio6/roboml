@@ -35,5 +35,5 @@
     "control_mode": "pd_ee_delta_pos",
     "from_ckpt": null,
     "algo_name": "SAC",
-    "script": "/cephfs_fast/rookie/rookie/sac_maniskill2.py"
+    "script": "SAC.py"
 }
