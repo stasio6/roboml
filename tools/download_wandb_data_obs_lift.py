@@ -115,15 +115,15 @@ if __name__ == "__main__":
     #     'hdaxfeze','fv67d84c','j96agsgt'
     # ])
 
-    get_runs("PickClutterYCB_SAC-state", 'rk-dev', "ManiSkill2-New", [
-        '4v39ux6h','1z73mecf','swilb9lz', '9rpz3c0i', 'z2rli84p'
-    ])
-    get_runs("PickClutterYCB_s2v", 'sstrzelecki', "roboml", [
-        'jt443y9e', 'f9dmt2sk', 'biezyfzu'
-    ])
-    get_runs("PickClutterYCB_AAC-SAC", 'sstrzelecki', "roboml", [
-        'o2cp8ntu', 'kba3abk5', 'vhvszp4a'
-    ])
+    # get_runs("PickClutterYCB_SAC-state", 'rk-dev', "ManiSkill2-New", [
+    #     '4v39ux6h','1z73mecf','swilb9lz', '9rpz3c0i', 'z2rli84p'
+    # ])
+    # get_runs("PickClutterYCB_s2v", 'sstrzelecki', "roboml", [
+    #     'jt443y9e', 'f9dmt2sk', 'biezyfzu'
+    # ])
+    # get_runs("PickClutterYCB_AAC-SAC", 'sstrzelecki', "roboml", [
+    #     'o2cp8ntu', 'kba3abk5', 'vhvszp4a'
+    # ])
 
     # get_runs("OpenDoor_SAC-state", 'tmu', "ManiSkill2-dev", [
     #     'xl416bnf','dzz92qcn','m5qiiis1'

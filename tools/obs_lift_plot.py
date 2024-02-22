@@ -77,7 +77,7 @@ def prepare_curves_for_subplot(data_for_subplot, x_name='global_step', y_name='t
             local_max_x = max_x_for_all_method[i]
             num_bins_for_this_curve = int(num_bins * (local_max_x / global_max_x))
             linspace = np.linspace(0, local_max_x, num_bins_for_this_curve+1)
-        interp_curves = np.array([np.interp(linspace, curve['x'], curve['y']) for curve in raw_curves])
+        interp_curves = np.array([np.interp(linspace, curve['x'], smooth(curve['y'], window=smooth_window)) for curve in raw_curves])
         merged_curve = {'x': linspace, 'y': np.mean(interp_curves, axis=0), 'std': np.std(interp_curves, axis=0)}
         curve = merged_curve
 
@@ -109,7 +109,7 @@ def draw(
         smooth_window=10,
         outside_legend=False,
     ):
-    plt.rcParams["font.family"] = "Helvetica"
+    # plt.rcParams["font.family"] = "Helvetica" # I don't have it installed locally, feel free to use it
 
     n_subplots = len(data_for_subplots)
     fig, axes = plt.subplots(nrows=1, ncols=n_subplots, figsize=figsize, dpi=300)
@@ -228,27 +228,27 @@ if __name__ == "__main__":
     # expert_max_global_step = 5_000_000
     # expert_max__runtime = 15 * 3600
     # max_global_step = 7_000_000
-    # max__runtime = 25 * 3600
+    # max__runtime = 30 * 3600
 
     # env_name = 'PickSingleYCB'
     # expert_max_global_step = 5_000_000
     # expert_max__runtime = 13.4 * 3600
     # max_global_step = 7_000_000
-    # max__runtime = 20 * 3600
+    # max__runtime = 25 * 3600
 
     # env_name = 'OpenDrawer'
     # expert_max_global_step = 7_000_000
     # expert_max__runtime = 20 * 3600
     # max_global_step = 12_000_000
     # max__runtime = 35 * 3600
-    # smooth_window = 1
+    # smooth_window = 5
 
     # env_name = 'MoveBucket'
-    # expert_max_global_step = 30_000_000
-    # expert_max__runtime = 110 * 3600
+    # expert_max_global_step = 25_000_000
+    # expert_max__runtime = 85 * 3600
     # max_global_step = 40_000_000
     # smooth_window = 5
-    # max__runtime = 150 * 3600
+    # max__runtime = 130 * 3600
 
     # env_name = 'PegInsertion'
     # expert_max_global_step = 12_000_000
@@ -257,12 +257,12 @@ if __name__ == "__main__":
     # max__runtime = 55 * 3600
     # smooth_window = 10
 
-    env_name = 'PickClutterYCB'
-    expert_max_global_step = 8_000_000
-    expert_max__runtime = 19 * 3600
-    max_global_step = 15_000_000
-    max__runtime = 45 * 3600
-    smooth_window = 10
+    # env_name = 'PickClutterYCB'
+    # expert_max_global_step = 8_000_000
+    # expert_max__runtime = 19 * 3600
+    # max_global_step = 15_000_000
+    # max__runtime = 45 * 3600
+    # smooth_window = 10
 
     # env_name = 'OpenDoor'
     # expert_max_global_step = 2_000_000
