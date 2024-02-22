@@ -86,7 +86,7 @@ def parse_args():
     args.num_updates_per_collect = int(args.num_steps_per_collect / args.num_steps_per_update)
     args.num_eval_envs = min(args.num_eval_envs, args.num_eval_episodes)
     assert args.num_eval_episodes % args.num_eval_envs == 0
-    assert args.env_id in args.expert_ckpt, 'Expert checkpoint should be trained on the same env'
+    # assert args.env_id in args.expert_ckpt, 'Expert checkpoint should be trained on the same env'
     # fmt: on
     return args
 

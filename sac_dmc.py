@@ -39,7 +39,7 @@ def parse_args():
         help="if toggled, cuda will be enabled by default")
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
-    parser.add_argument("--wandb-project-name", type=str, default="roboml",
+    parser.add_argument("--wandb-project-name", type=str, default="rookie-dev",
         help="the wandb's project name")
     parser.add_argument("--wandb-entity", type=str, default=None,
         help="the entity (team) of wandb's project")
@@ -73,6 +73,8 @@ def parse_args():
             help="Entropy regularization coefficient.")
     parser.add_argument("--autotune", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
         help="automatic tuning of the entropy coefficient")
+    parser.add_argument("--hidden-sizes", type=int, default=256,
+        help="the size of the hidden layers")
     
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
@@ -188,16 +190,16 @@ def make_env(env_id, seed, action_repeat=None, video_dir=None, video_trigger=Non
 
 # ALGO LOGIC: initialize agent here:
 class SoftQNetwork(nn.Module):
-    def __init__(self, env):
+    def __init__(self, env, hidden_dimension=1024):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(np.array(env.single_observation_space.shape).prod() + np.prod(env.single_action_space.shape), 256),
+            nn.Linear(np.array(env.single_observation_space.shape).prod() + np.prod(env.single_action_space.shape), hidden_dimension),
             nn.ReLU(),
-            nn.Linear(256, 256),
+            nn.Linear(hidden_dimension, hidden_dimension),
             nn.ReLU(),
-            nn.Linear(256, 256),
+            nn.Linear(hidden_dimension, hidden_dimension),
             nn.ReLU(),
-            nn.Linear(256, 1),
+            nn.Linear(hidden_dimension, 1),
         )
 
     def forward(self, x, a):
@@ -210,18 +212,18 @@ LOG_STD_MIN = -5
 
 
 class Actor(nn.Module):
-    def __init__(self, env):
+    def __init__(self, env, hidden_dimension=1024):
         super().__init__()
         self.backbone = nn.Sequential(
-            nn.Linear(np.array(env.single_observation_space.shape).prod(), 256),
+            nn.Linear(np.array(env.single_observation_space.shape).prod(), hidden_dimension),
             nn.ReLU(),
-            nn.Linear(256, 256),
+            nn.Linear(hidden_dimension, hidden_dimension),
             nn.ReLU(),
-            nn.Linear(256, 256),
+            nn.Linear(hidden_dimension, hidden_dimension),
             nn.ReLU(),
         )
-        self.fc_mean = nn.Linear(256, np.prod(env.single_action_space.shape))
-        self.fc_logstd = nn.Linear(256, np.prod(env.single_action_space.shape))
+        self.fc_mean = nn.Linear(hidden_dimension, np.prod(env.single_action_space.shape))
+        self.fc_logstd = nn.Linear(hidden_dimension, np.prod(env.single_action_space.shape))
         # action rescaling
         self.action_scale = torch.FloatTensor((env.single_action_space.high - env.single_action_space.low) / 2.0)
         self.action_bias = torch.FloatTensor((env.single_action_space.high + env.single_action_space.low) / 2.0)
@@ -288,8 +290,11 @@ if __name__ == "__main__":
 
     now = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
     tag = '{:s}_{:d}'.format(now, args.seed)
-    if args.exp_name: tag += '_' + args.exp_name
+    if args.exp_name: 
+        tag += '_' + args.exp_name
+        group_tag = '_' + args.exp_name
     log_name = os.path.join(ENV_DOMAIN, args.env_id, ALGO_NAME, tag)
+    group_log_name = os.path.join(ENV_DOMAIN, args.env_id, ALGO_NAME, group_tag)
     log_path = os.path.join(args.output_dir, log_name)
 
     if args.track:
@@ -301,6 +306,7 @@ if __name__ == "__main__":
             sync_tensorboard=True,
             config=vars(args),
             name=log_name.replace(os.path.sep, "__"),
+            group=group_log_name.replace(os.path.sep, "__"),
             monitor_gym=True,
             save_code=True,
         )
@@ -336,11 +342,11 @@ if __name__ == "__main__":
 
     max_action = float(envs.single_action_space.high[0])
 
-    actor = Actor(envs).to(device)
-    qf1 = SoftQNetwork(envs).to(device)
-    qf2 = SoftQNetwork(envs).to(device)
-    qf1_target = SoftQNetwork(envs).to(device)
-    qf2_target = SoftQNetwork(envs).to(device)
+    actor = Actor(envs, args.hidden_sizes).to(device)
+    qf1 = SoftQNetwork(envs, args.hidden_sizes).to(device)
+    qf2 = SoftQNetwork(envs, args.hidden_sizes).to(device)
+    qf1_target = SoftQNetwork(envs, args.hidden_sizes).to(device)
+    qf2_target = SoftQNetwork(envs, args.hidden_sizes).to(device)
     if args.from_ckpt is not None:
         ckpt = torch.load(args.from_ckpt)
         actor.load_state_dict(ckpt['actor'])
