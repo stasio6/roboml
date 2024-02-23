@@ -474,7 +474,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # env setup
-    VecEnv = gym.vector.SyncVectorEnv if args.sync_venv else gym.vector.AsyncVectorEnv
+    VecEnv = gym.vector.SyncVectorEnv if args.sync_venv else lambda x: gym.vector.AsyncVectorEnv(x, context='forkserver')
     envs = VecEnv(
         [make_env(args.env_id, args.seed + i) for i in range(args.num_envs)]
     )
