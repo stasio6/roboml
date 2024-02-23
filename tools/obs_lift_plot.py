@@ -282,40 +282,40 @@ if __name__ == "__main__":
     ##############################################
 
     # env_name = 'Acrobot-Swingup'
-    # expert_max_global_step = 510_000
-    # expert_max__runtime = 60 * 60
-    # max_global_step = 3_000_000
-    # max__runtime = 2.2 * 3600
+    # expert_max_global_step = 1_500_000
+    # expert_max__runtime = 153 * 60
+    # max_global_step = 4_000_000
+    # max__runtime = 5 * 3600
 
     # env_name = 'Reacher-Hard'
-    # expert_max_global_step = 100_000
-    # expert_max__runtime = 11 * 60
+    # expert_max_global_step = 200_000
+    # expert_max__runtime = 21 * 60
     # max_global_step = 3_000_000
     # max__runtime = 2.2 * 3600
 
     # env_name = 'Swimmer-6'
     # expert_max_global_step = 300_000
-    # expert_max__runtime = 29 * 60
+    # expert_max__runtime = 35 * 60
     # max_global_step = 3_000_000
-    # max__runtime = 4 * 3600
+    # max__runtime = 10 * 3600
 
     # env_name = 'Walker-Run'
-    # expert_max_global_step = 200_000
-    # expert_max__runtime = 21 * 60
+    # expert_max_global_step = 1_000_000
+    # expert_max__runtime = 95 * 60
     # max_global_step = 3_000_000
     # max__runtime = 3 * 3600
 
     # env_name = 'Hopper-Hop'
-    # expert_max_global_step = 1_000_000
-    # expert_max__runtime = 100 * 60
-    # max_global_step = 3_000_000
-    # max__runtime = 3 * 3600
+    # expert_max_global_step = 3_000_000
+    # expert_max__runtime = 330 * 60
+    # max_global_step = 6_000_000
+    # max__runtime = 8 * 3600
 
     # env_name = 'Humanoid-Walk'
-    # expert_max_global_step = 3_000_000
-    # expert_max__runtime = 7.1 * 3600
-    # max_global_step = 30_000_000
-    # max__runtime = 10 * 3600
+    # expert_max_global_step = 4_000_000
+    # expert_max__runtime = 9.3 * 3600
+    # max_global_step = 10_000_000
+    # max__runtime = 15 * 3600
 
     ######################################################################
     # Plot

@@ -139,8 +139,8 @@ if __name__ == "__main__":
     # get_runs("Acrobot-Swingup_SAC-state", 'ycyao216', "Neurips-DMC-S2V-tune", [
     #     '2ahouicv','7j9yvzqp', 'axy3dqd8',
     # ])
-    # get_runs("Acrobot-Swingup_s2v", 'ycyao216', "Neurips-DMC-S2V-3M", [
-    #     'adxm7x65',
+    # get_runs("Acrobot-Swingup_s2v", 'sstrzelecki', "roboml", [
+    #     '3kqbqakz', 'jkqesmn3', 'w63lh7ln',
     # ])
     # get_runs("Acrobot-Swingup_AAC-SAC", 'ycyao216', "Neurips-dmc-rgb-aac_sac-rerun", [
     #     '42k8sz6j', 'ue1hpr3v', 'yzeqljmx',
@@ -149,8 +149,8 @@ if __name__ == "__main__":
     # get_runs("Reacher-Hard_SAC-state", 'ycyao216', "Neurips-DMC-S2V-tune", [
     #     '3lhmngxr', '0m1zk42i', 'c88e0s7u',
     # ])
-    # get_runs("Reacher-Hard_s2v", 'ycyao216', "Neurips-DMC-S2V-3M", [
-    #     'imj5dv2e',
+    # get_runs("Reacher-Hard_s2v", 'sstrzelecki', "roboml", [
+    #     'iszqn5ou', 'sxh08y6f', '1yftp45y',
     # ])
     # get_runs("Reacher-Hard_AAC-SAC", 'ycyao216', "Neurips-dmc-rgb-aac_sac-rerun", [
     #     'wykd3lvz', 's5sgcszv', 'v9dzym8x',
@@ -159,8 +159,8 @@ if __name__ == "__main__":
     # get_runs("Swimmer-6_SAC-state", 'ycyao216', "Neurips-DMC-S2V-tune", [
     #     'gq7y3vm9', 'cxm5yr0s', 'xoevq84t',
     # ])
-    # get_runs("Swimmer-6_s2v", 'ycyao216', "Neurips-DMC-S2V-3M", [
-    #     'xtez0gxk',
+    # get_runs("Swimmer-6_s2v", 'sstrzelecki', "roboml", [
+    #     'qzssg9q9', '0gbi9vxu', 'h04d3p4h',
     # ])
     # get_runs("Swimmer-6_AAC-SAC", 'ycyao216', "Neurips-dmc-rgb-aac_sac-rerun", [
     #     'txtvmmjw', 'fn84plmn', 'ym7du9oc',
@@ -169,8 +169,8 @@ if __name__ == "__main__":
     # get_runs("Walker-Run_SAC-state", 'ycyao216', "Neurips-DMC-S2V-tune", [
     #     'vrasabzl', 'mt5d3cun', 'ltxjta1s',
     # ])
-    # get_runs("Walker-Run_s2v", 'ycyao216', "Neurips-DMC-S2V-3M", [
-    #     '7d2i7s07',
+    # get_runs("Walker-Run_s2v", 'sstrzelecki', "roboml", [
+    #     'x5uwtucx', 'ukepcwfb', 'cjzx0vh1',
     # ])
     # get_runs("Walker-Run_AAC-SAC", 'ycyao216', "Neurips-dmc-rgb-aac_sac-rerun", [
     #     'e5hyd49z', '3dv3pgl6', 'y9l737hz',
@@ -179,8 +179,8 @@ if __name__ == "__main__":
     # get_runs("Hopper-Hop_SAC-state", 'ycyao216', "Neurips-DMC-S2V-tune", [
     #     't0mrvwa1', '6us2c4fk', 'fyqq6ybm',
     # ])
-    # get_runs("Hopper-Hop_s2v", 'ycyao216', "Neurips-DMC-S2V-3M", [
-    #     '8lziinhd',
+    # get_runs("Hopper-Hop_s2v", 'sstrzelecki', "roboml", [
+    #     'n558xf3y', 'zou7yghu', 'dlb7rk2x',
     # ])
     # get_runs("Hopper-Hop_AAC-SAC", 'ycyao216', "Neurips-dmc-rgb-aac_sac-rerun", [
     #     'myfi8i4a', 'z2kka7rc', 'e3u6tj3n',
@@ -189,8 +189,8 @@ if __name__ == "__main__":
     # get_runs("Humanoid-Walk_SAC-state", 'ycyao216', "Neurips-DMC-S2V-tune", [
     #     '06rp3op4', '6wfuw9gi', '87qtmicu',
     # ])
-    # get_runs("Humanoid-Walk_s2v", 'ycyao216', "Neurips-DMC-S2V-3M", [
-    #     'kglbff87',
+    # get_runs("Humanoid-Walk_s2v", 'sstrzelecki', "roboml", [
+    #     'jn2y4ar5', '503spaie', 'q76ck13l',
     # ])
     # get_runs("Humanoid-Walk_AAC-SAC", 'ycyao216', "Neurips-dmc-rgb-aac_sac-rerun", [
     #     '5lcwry2p','r4dg13hg','so4fjpn4'
