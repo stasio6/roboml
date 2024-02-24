@@ -26,6 +26,12 @@ def get_curves_from_csv_dir(dir_path, x_name='global_step', y_name='train/succes
             while ',' not in firstline:
                 firstline = csvfile.readline()
             col_names = firstline[:-1].split(",")
+            if "DrQ" in dir_path:
+                if x_name == 'global_step':
+                    x_name = 'frame'
+                elif x_name == '_runtime':
+                    x_name = 'hour'
+                y_name = 'episode_reward'
             x_col = col_names.index(x_name)
             y_col = col_names.index(y_name)
             reader = csv.reader(csvfile)
@@ -39,6 +45,11 @@ def get_curves_from_csv_dir(dir_path, x_name='global_step', y_name='train/succes
                         break
                     x_list.append(_x)
                     y_list.append(_y)
+        if "DrQ" in dir_path:
+            if x_name == 'hour':
+                x_list = list(np.array(x_list) * 3600)
+            else:
+                x_list = list(np.array(x_list) * 1) # TODO: Transform frame to global_step accordingly
         curves.append({'x': x_list, 'y': y_list})
 
     return curves
@@ -338,6 +349,11 @@ if __name__ == "__main__":
                     'label': 'Visual RL',
                     'dir': f'{DATA_DIR}/{env_name}_AAC-SAC',
                 },
+                # Uncomment for DrQ2 plots
+                # {
+                #     'label': 'DrQ-v2',
+                #     'dir': f'{DATA_DIR}/{env_name}_DrQ2',
+                # },
             ],
             'title': env_name,
             'x_lim': max_global_step if x_axis_name == 'env_steps' else max__runtime,
