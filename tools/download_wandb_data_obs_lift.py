@@ -28,7 +28,7 @@ if __name__ == "__main__":
     #     'czmfj755', '69drhkap', 'shxjmblq', '0wjgpq1n', 'i56zf5v4'
     # ])
     # get_runs("PickCube_s2v", 'sstrzelecki', "roboml", [
-    #     'l6clnbox', '8pg395cc', 'zp6odqyb'
+    #     '1ph678o9', 'r5xqncgm', 'mll2b77n'
     # ])
     # get_runs("PickCube_AAC-SAC", 'sstrzelecki', "roboml", [
     #     'ua8cgwow', '4hhwvsb2', 'nqk73lsx'
@@ -37,12 +37,9 @@ if __name__ == "__main__":
     # get_runs("StackCube_SAC-state", 'tmu', "ManiSkill2-dev", [
     #     'b69bp0z8','twjwri03','sa6ms39n'
     # ])
-    # get_runs("StackCube_s2v", 'sstrzelecki', "s2v-DAgger-baselines", [
-    #     'fvppgdv6',
-    # ])
     # get_runs("StackCube_s2v", 'sstrzelecki', "roboml", [
-    #     'v7ftriw4', 'vah7spyh', 'rcjzjs2q'
-    # ], clean_dir=False)
+    #     '0pu2x1sm', '8v44tqcv', '4fufz635'
+    # ])
     # get_runs("StackCube_AAC-SAC", 'ycyao216', "Neurips-ms-rgbd-aac-sac-30Msteps", [
     #     '3aykx2xv','fverxgfr','g9ew3cb8'
     # ])
@@ -50,12 +47,9 @@ if __name__ == "__main__":
     # get_runs("PickSingleYCB_SAC-state", 'tmu', "ManiSkill2-dev", [
     #     '6jlxrwyl','icuvro8o','u6kqbqx4'
     # ])
-    # get_runs("PickSingleYCB_s2v", 'sstrzelecki', "s2v-DAgger-baselines", [
-    #     'fo3fa0ka',
-    # ])
     # get_runs("PickSingleYCB_s2v", 'sstrzelecki', "roboml", [
-    #     'yxrlaze7', 'oeorbhxa', 'svapc76h'
-    # ], clean_dir=False)
+    #     '9366909o', 'q12bek6v', 'kwws972x'
+    # ])
     # get_runs("PickSingleYCB_AAC-SAC", 'ycyao216', "Neurips-ms-rgbd-aac-sac-30Msteps", [
     #     'thl2q38b','8nhu1ak5','w0wpznjx'
     # ])
@@ -64,11 +58,8 @@ if __name__ == "__main__":
     #     'u4tfkq09', '7brsyvdp', 'pukavffe'
     # ])
     # get_runs("TurnFaucet_s2v", 'sstrzelecki', "roboml", [
-    #     '26y8u7sg', 'tgylqbc0'
+    #     'k9y4b1ma', 'gl6e69ot', 'aynuzcv2'
     # ])
-    # get_runs("TurnFaucet_s2v", 'sstrzelecki', "s2v-DAgger-baselines", [
-    #     'mqfk4s1t'
-    # ], clean_dir=False)
     # get_runs("TurnFaucet_AAC-SAC", 'ycyao216', "Neurips-ms-rgbd-aac-sac-30Msteps", [
     #     'jpb0a2jv','1h1n8aeu','ypf781zi',
     # ])
@@ -105,12 +96,9 @@ if __name__ == "__main__":
     # get_runs("PegInsertion_SAC-state", 'tmu', "ManiSkill2-dev", [
     #     'ubynkm9a','9mu4fwrv','uux12i8h'
     # ])
-    # get_runs("PegInsertion_s2v", 'sstrzelecki', "s2v-DAgger-baselines", [
-    #     'ghudfvzj',
-    # ])
     # get_runs("PegInsertion_s2v", 'sstrzelecki', "roboml", [
-    #     'iyjd6aln', 'gcwkdhk6',
-    # ], clean_dir=False)
+    #     'rcnn622k', 'eff3vd25', 'zf2onvfs',
+    # ])
     # get_runs("PegInsertion_AAC-SAC", 'ycyao216', "Neurips-ms-rgbd-aac-sac-30Msteps", [
     #     'hdaxfeze','fv67d84c','j96agsgt'
     # ])
@@ -119,7 +107,7 @@ if __name__ == "__main__":
     #     '4v39ux6h','1z73mecf','swilb9lz', '9rpz3c0i', 'z2rli84p'
     # ])
     # get_runs("PickClutterYCB_s2v", 'sstrzelecki', "roboml", [
-    #     'jt443y9e', 'f9dmt2sk', 'biezyfzu'
+    #     'hdcxqq51', 'n7szu7go', 'yl6fj5as'
     # ])
     # get_runs("PickClutterYCB_AAC-SAC", 'sstrzelecki', "roboml", [
     #     'o2cp8ntu', 'kba3abk5', 'vhvszp4a'
