@@ -1,4 +1,4 @@
-ALGO_NAME = 'SACfd-ms2-new'
+ALGO_NAME = 'SACfd-REDQ-ms2-new'
 
 import os
 import argparse
@@ -70,6 +70,10 @@ def parse_args():
     parser.add_argument("--alpha", type=float, default=0.2,
             help="Entropy regularization coefficient.")
     parser.add_argument("--autotune", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
+        help="automatic tuning of the entropy coefficient")
+    parser.add_argument("--num-q-functions", type=int, default=10, nargs="?", const=True,
+        help="automatic tuning of the entropy coefficient")
+    parser.add_argument("--q-functions-subset-size", type=int, default=2, nargs="?", const=True,
         help="automatic tuning of the entropy coefficient")
     
     parser.add_argument("--output-dir", type=str, default='output')
@@ -362,18 +366,20 @@ if __name__ == "__main__":
     max_action = float(envs.single_action_space.high[0])
 
     actor = Actor(envs).to(device)
-    qf1 = SoftQNetwork(envs).to(device)
-    qf2 = SoftQNetwork(envs).to(device)
-    qf1_target = SoftQNetwork(envs).to(device)
-    qf2_target = SoftQNetwork(envs).to(device)
+    qf = [SoftQNetwork(envs).to(device) for _ in range(args.num_q_functions)]
+    qf_target = [SoftQNetwork(envs).to(device) for _ in range(args.num_q_functions)]
     if args.from_ckpt is not None:
         ckpt = torch.load(args.from_ckpt)
         actor.load_state_dict(ckpt['actor'])
+        raise NotImplementedError
         qf1.load_state_dict(ckpt['qf1'])
         qf2.load_state_dict(ckpt['qf2'])
-    qf1_target.load_state_dict(qf1.state_dict())
-    qf2_target.load_state_dict(qf2.state_dict())
-    q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
+    for i in range(args.num_q_functions):
+        qf_target[i].load_state_dict(qf[i].state_dict())
+    qf_params = []
+    for qf_i in qf:
+        qf_params = qf_params + list(qf_i.parameters())
+    q_optimizer = optim.Adam(qf_params, lr=args.q_lr)
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
 
     # Automatic entropy tuning
@@ -452,19 +458,22 @@ if __name__ == "__main__":
             # update the value networks
             with torch.no_grad():
                 next_state_actions, next_state_log_pi, _ = actor.get_action(data['next_observations'])
-                qf1_next_target = qf1_target(data['next_observations'], next_state_actions)
-                qf2_next_target = qf2_target(data['next_observations'], next_state_actions)
-                min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
+                M_subset = np.random.choice(qf_target, size=args.q_functions_subset_size, replace=False)
+                min_qf_value = M_subset[0](data['next_observations'], next_state_actions)
+                for qf_target_m in M_subset:
+                    min_qf_value = torch.min(min_qf_value, qf_target_m(data['next_observations'], next_state_actions))
+                min_qf_next_target = min_qf_value - alpha * next_state_log_pi
                 if args.value_always_bootstrap:
                     next_q_value = data['rewards'].flatten() + args.gamma * (min_qf_next_target).view(-1)
                 else:
                     next_q_value = data['rewards'].flatten() + (1 - data['dones'].flatten()) * args.gamma * (min_qf_next_target).view(-1)
 
-            qf1_a_values = qf1(data['observations'], data['actions']).view(-1)
-            qf2_a_values = qf2(data['observations'], data['actions']).view(-1)
-            qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
-            qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
-            qf_loss = qf1_loss + qf2_loss
+            qf_loss = 0
+            qf_a_values = []
+            for qf_i in qf:
+                qf_a_val = qf_i(data['observations'], data['actions']).view(-1)
+                qf_a_values.append(qf_a_val)
+                qf_loss += F.mse_loss(qf_a_val, next_q_value)
 
             q_optimizer.zero_grad()
             qf_loss.backward()
@@ -473,9 +482,10 @@ if __name__ == "__main__":
             # update the policy network
             if global_update % args.policy_frequency == 0:  # TD 3 Delayed update support
                 pi, log_pi, _ = actor.get_action(data['observations'])
-                qf1_pi = qf1(data['observations'], pi)
-                qf2_pi = qf2(data['observations'], pi)
-                min_qf_pi = torch.min(qf1_pi, qf2_pi).view(-1)
+                min_qf_pi = qf[0](data['observations'], pi)
+                for qf_i in qf:
+                    min_qf_pi = torch.min(min_qf_pi, qf_i(data['observations'], pi))
+                min_qf_pi = min_qf_pi.view(-1)
                 actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
                 actor_optimizer.zero_grad()
@@ -494,9 +504,9 @@ if __name__ == "__main__":
 
             # update the target networks
             if global_update % args.target_network_frequency == 0:
-                for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):
+                for param, target_param in zip(qf[0].parameters(), qf_target[0].parameters()): # TODO: Implement proper sacing method
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-                for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
+                for param, target_param in zip(qf[1].parameters(), qf_target[1].parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
         training_time += time.time() - tic
 
@@ -506,10 +516,9 @@ if __name__ == "__main__":
                 for k, v in result.items():
                     writer.add_scalar(f"train/{k}", np.mean(v), global_step)
                 result = defaultdict(list)
-            writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
-            writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
-            writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
-            writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
+            writer.add_scalar("losses/qf1_values", qf_a_values[0].mean().item(), global_step)
+            writer.add_scalar("losses/qf2_values", qf_a_values[1].mean().item(), global_step)
+            writer.add_scalar("losses/qf_total_loss", qf_loss.item(), global_step)
             writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
             writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
             writer.add_scalar("losses/alpha", alpha, global_step)
@@ -538,8 +547,8 @@ if __name__ == "__main__":
             os.makedirs(f'{log_path}/checkpoints', exist_ok=True)
             torch.save({
                 'actor': actor.state_dict(), # does NOT include action_scale
-                'qf1': qf1_target.state_dict(),
-                'qf2': qf2_target.state_dict(),
+                'qf1': qf_target[0].state_dict(), # TODO: Implement proper saving
+                'qf2': qf_target[1].state_dict(),
             }, f'{log_path}/checkpoints/{global_step}.pt')
 
     envs.close()
