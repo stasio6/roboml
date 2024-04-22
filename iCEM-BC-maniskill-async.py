@@ -87,7 +87,7 @@ def parse_args():
 
 import mani_skill2.envs
 from mani_skill2.utils.common import flatten_state_dict, flatten_dict_space_keys
-from mani_skill2.utils.wrappers import RecordEpisodeWithReward
+from utils.wrappers import RecordEpisodeWithReward
 from mani_skill2.vector.vec_env import VecEnvObservationWrapper
 from gym.core import Wrapper, ObservationWrapper
 from gym import spaces
