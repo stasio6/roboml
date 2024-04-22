@@ -71,6 +71,10 @@ def parse_args():
             help="Entropy regularization coefficient.")
     parser.add_argument("--autotune", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
         help="automatic tuning of the entropy coefficient")
+    parser.add_argument("--use-layer-norm", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
+        help="should q functions use layer norm")
+    parser.add_argument("--symmetric-sampling", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
+        help="should use symmetric sampling")
     
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
@@ -129,15 +133,16 @@ def to_tensor(x, device):
 
 # ALGO LOGIC: initialize agent here:
 class SoftQNetwork(nn.Module):
-    def __init__(self, env):
+    def __init__(self, env, useLayerNorm=True):
         super().__init__()
+        layerNorm = nn.LayerNorm(256) if useLayerNorm else nn.Identity()
         self.net = nn.Sequential(
             nn.Linear(np.array(env.single_observation_space.shape).prod() + np.prod(env.single_action_space.shape), 256),
-            nn.ReLU(),
+            layerNorm, nn.ReLU(),
             nn.Linear(256, 256),
-            nn.ReLU(),
+            layerNorm, nn.ReLU(),
             nn.Linear(256, 256),
-            nn.ReLU(),
+            layerNorm, nn.ReLU(),
             nn.Linear(256, 1),
         )
 
@@ -203,7 +208,8 @@ class Actor(nn.Module):
         return super().to(device)
     
 class SmallDemoDataset(object):
-    def __init__(self, envs, data_path, obs_space, device, buffer_size, num_envs, device_cuda, num_traj=None):
+    def __init__(self, envs, data_path, obs_space, device, buffer_size, num_envs, device_cuda, symmetric_sampling, num_traj=None):
+        self.symmetric_sampling = symmetric_sampling
         if data_path[-4:] == '.pkl':
             raise NotImplementedError()
         else:
@@ -258,6 +264,8 @@ class SmallDemoDataset(object):
     
     def sample(self, batch_size, device):
         n_samples_demo = int(batch_size/2)
+        if not self.symmetric_sampling:
+            n_samples_demo = int(batch_size * (len(self.demo_data['actions']) / (len(self.demo_data['actions']) + self.collect_data.size())))
         n_samples_collect = batch_size - n_samples_demo
         
         idxs = np.random.randint(0, self.demo_size, size=n_samples_demo)
@@ -362,10 +370,10 @@ if __name__ == "__main__":
     max_action = float(envs.single_action_space.high[0])
 
     actor = Actor(envs).to(device)
-    qf1 = SoftQNetwork(envs).to(device)
-    qf2 = SoftQNetwork(envs).to(device)
-    qf1_target = SoftQNetwork(envs).to(device)
-    qf2_target = SoftQNetwork(envs).to(device)
+    qf1 = SoftQNetwork(envs, args.use_layer_norm).to(device)
+    qf2 = SoftQNetwork(envs, args.use_layer_norm).to(device)
+    qf1_target = SoftQNetwork(envs, args.use_layer_norm).to(device)
+    qf2_target = SoftQNetwork(envs, args.use_layer_norm).to(device)
     if args.from_ckpt is not None:
         ckpt = torch.load(args.from_ckpt)
         actor.load_state_dict(ckpt['actor'])
@@ -395,7 +403,7 @@ if __name__ == "__main__":
     #     handle_timeout_termination=True,
     # )
     
-    dataset = SmallDemoDataset(envs, args.demo_path, envs.single_observation_space, 'cpu', args.buffer_size, args.num_envs, device, num_traj=args.num_demo_traj)
+    dataset = SmallDemoDataset(envs, args.demo_path, envs.single_observation_space, 'cpu', args.buffer_size, args.num_envs, device, args.symmetric_sampling, num_traj=args.num_demo_traj)
 
     # TRY NOT TO MODIFY: start the game
     start_time = time.time()
