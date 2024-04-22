@@ -87,7 +87,7 @@ def parse_args():
 
 import mani_skill2.envs
 from mani_skill2.utils.common import flatten_state_dict, flatten_dict_space_keys
-from mani_skill2.utils.wrappers import RecordEpisode
+from mani_skill2.utils.wrappers import RecordEpisodeWithReward
 from mani_skill2.vector.vec_env import VecEnvObservationWrapper
 from gym.core import Wrapper, ObservationWrapper
 from gym import spaces
@@ -134,6 +134,19 @@ class SimulateActionsWrapper(Wrapper):
             scores.append(score)
         return np.array(scores)
 
+class FlushWhenSuccessWrapper(gym.Wrapper):
+    def __init__(self, env, save_video=False):
+        super().__init__(env)
+        self.save_video = save_video
+
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        if info['success']:
+            self.env.flush_trajectory(verbose=False)
+            if self.save_video:
+                self.env.flush_video(verbose=False)
+        return obs, reward, done, info
+
 def split_into_chunks(a, num_chunks):
     chunk_size = len(a) // num_chunks
     remainder = len(a) % num_chunks
@@ -145,13 +158,22 @@ def split_into_chunks(a, num_chunks):
         ret.append(a[k+i*chunk_size:k+(i+1)*chunk_size])
     return ret
 
-def make_env(env_id, control_mode, reward_mode, seed, video_dir=None, video_trigger=None):
+def make_env(env_id, control_mode, reward_mode, seed, record_dir=None, save_video=False, video_trigger=None):
     def thunk():
         env = gym.make(env_id, reward_mode=reward_mode, obs_mode='state', control_mode=control_mode)
         env = SimulateActionsWrapper(env) # for sim_envs
 
-        if video_dir:
-            env = RecordEpisode(env, output_dir=video_dir, save_trajectory=True, info_on_video=True)
+        if record_dir:
+            env = RecordEpisodeWithReward(
+                env,
+                output_dir=record_dir,
+                save_trajectory=True,
+                save_on_reset=False,
+                clean_on_close=True,
+                save_video=save_video,
+                info_on_video=True
+            )
+            env = FlushWhenSuccessWrapper(env, save_video=save_video)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.ClipAction(env)
 
@@ -375,7 +397,8 @@ if __name__ == "__main__":
         [make_env(args.env_id, args.control_mode, args.reward_mode, args.seed+1) for i in range(args.num_envs)],
         **kwargs
     )
-    eval_env = make_env(args.env_id, args.control_mode, args.reward_mode, args.seed+1, video_dir=log_path)()
+    print("log path:", log_path)
+    eval_env = make_env(args.env_id, args.control_mode, args.reward_mode, args.seed+1, record_dir=log_path)()
     bc_env = make_env(args.env_id, args.control_mode, args.reward_mode, args.seed+1)()
     env = eval_env
     assert isinstance(env.action_space, gym.spaces.Box), "only continuous action space is supported"
