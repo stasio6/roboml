@@ -408,7 +408,7 @@ if __name__ == "__main__":
     from os.path import dirname as up
     # args.expert_ckpt = 'checkpoints_bc/' + args.env_id + '/checkpoints/' + args.env_id + "_200.pt"
     #print(args.ex)
-    expert_dir = up(args.expert_ckpt) # Should be up(up()) normally, changed only for my way of storing checkpoints
+    expert_dir = up(up(args.expert_ckpt))
     import json
     with open(f'{expert_dir}/args.json', 'r') as f:
         expert_args = json.load(f)
