@@ -1,0 +1,373 @@
+{
+  "env_info": {
+    "env_id": "PegInsertionSide-v1",
+    "max_episode_steps": 200,
+    "env_kwargs": {
+      "reward_mode": "dense",
+      "obs_mode": "state",
+      "control_mode": "pd_ee_delta_pose"
+    }
+  },
+  "episodes": [
+    {
+      "episode_id": 0,
+      "episode_seed": 4153361530,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 35,
+      "info": {
+        "elapsed_steps": 35,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.01354101300239563,
+          -0.0012027472257614136,
+          0.002673037350177765
+        ]
+      }
+    },
+    {
+      "episode_id": 1,
+      "episode_seed": 953453411,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 35,
+      "info": {
+        "elapsed_steps": 35,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.005216419696807861,
+          -0.002781115472316742,
+          0.0030122697353363037
+        ]
+      }
+    },
+    {
+      "episode_id": 2,
+      "episode_seed": 236996814,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 26,
+      "info": {
+        "elapsed_steps": 26,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.014560893177986145,
+          -0.0009463950991630554,
+          0.002744913101196289
+        ]
+      }
+    },
+    {
+      "episode_id": 3,
+      "episode_seed": 3834805130,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 50,
+      "info": {
+        "elapsed_steps": 50,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          0.0034189820289611816,
+          -0.003003641963005066,
+          0.00010772049427032471
+        ]
+      }
+    },
+    {
+      "episode_id": 4,
+      "episode_seed": 327741615,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 19,
+      "info": {
+        "elapsed_steps": 19,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.011110365390777588,
+          -0.0029477477073669434,
+          0.0029462873935699463
+        ]
+      }
+    },
+    {
+      "episode_id": 5,
+      "episode_seed": 3751350723,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 24,
+      "info": {
+        "elapsed_steps": 24,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.01239103078842163,
+          0.0029972493648529053,
+          0.002222307026386261
+        ]
+      }
+    },
+    {
+      "episode_id": 6,
+      "episode_seed": 47736148,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 19,
+      "info": {
+        "elapsed_steps": 19,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.0071052610874176025,
+          -0.003019392490386963,
+          -0.001338675618171692
+        ]
+      }
+    },
+    {
+      "episode_id": 7,
+      "episode_seed": 4159850481,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 23,
+      "info": {
+        "elapsed_steps": 23,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.013109266757965088,
+          0.002648811787366867,
+          0.002645619213581085
+        ]
+      }
+    },
+    {
+      "episode_id": 8,
+      "episode_seed": 44556670,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 24,
+      "info": {
+        "elapsed_steps": 24,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.005463123321533203,
+          0.0017923936247825623,
+          -0.0020245611667633057
+        ]
+      }
+    },
+    {
+      "episode_id": 9,
+      "episode_seed": 1565348188,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 21,
+      "info": {
+        "elapsed_steps": 21,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.010415971279144287,
+          0.0005335472524166107,
+          0.0029845386743545532
+        ]
+      }
+    },
+    {
+      "episode_id": 10,
+      "episode_seed": 662124363,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 30,
+      "info": {
+        "elapsed_steps": 30,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.010699555277824402,
+          -0.002972930669784546,
+          0.0018007159233093262
+        ]
+      }
+    },
+    {
+      "episode_id": 11,
+      "episode_seed": 1916507803,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 24,
+      "info": {
+        "elapsed_steps": 24,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.010840505361557007,
+          -0.00014506280422210693,
+          0.001320071518421173
+        ]
+      }
+    },
+    {
+      "episode_id": 12,
+      "episode_seed": 3340206418,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 21,
+      "info": {
+        "elapsed_steps": 21,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.00777927041053772,
+          0.0005271546542644501,
+          0.0030011609196662903
+        ]
+      }
+    },
+    {
+      "episode_id": 13,
+      "episode_seed": 2207369835,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 17,
+      "info": {
+        "elapsed_steps": 17,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.00904962420463562,
+          -0.0022587627172470093,
+          0.0030006319284439087
+        ]
+      }
+    },
+    {
+      "episode_id": 14,
+      "episode_seed": 3959502168,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 16,
+      "info": {
+        "elapsed_steps": 16,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.010437816381454468,
+          0.0015049725770950317,
+          0.0029534101486206055
+        ]
+      }
+    },
+    {
+      "episode_id": 15,
+      "episode_seed": 3320718604,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 18,
+      "info": {
+        "elapsed_steps": 18,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.006183117628097534,
+          -0.0004403814673423767,
+          -0.002167321741580963
+        ]
+      }
+    },
+    {
+      "episode_id": 16,
+      "episode_seed": 3645644232,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 24,
+      "info": {
+        "elapsed_steps": 24,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.009997546672821045,
+          0.0027074962854385376,
+          0.002694699913263321
+        ]
+      }
+    },
+    {
+      "episode_id": 17,
+      "episode_seed": 959027881,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 19,
+      "info": {
+        "elapsed_steps": 19,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.014566153287887573,
+          -0.0025461073964834213,
+          0.0029527992010116577
+        ]
+      }
+    },
+    {
+      "episode_id": 18,
+      "episode_seed": 2793336106,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 20,
+      "info": {
+        "elapsed_steps": 20,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.004425376653671265,
+          -0.003004886209964752,
+          0.001926317811012268
+        ]
+      }
+    },
+    {
+      "episode_id": 19,
+      "episode_seed": 326463763,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pose",
+      "elapsed_steps": 28,
+      "info": {
+        "elapsed_steps": 28,
+        "success": true,
+        "peg_head_pos_at_hole": [
+          -0.00812077522277832,
+          0.0014846324920654297,
+          -0.00014794617891311646
+        ]
+      }
+    }
+  ]
+}

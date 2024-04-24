@@ -1,0 +1,333 @@
+{
+  "env_info": {
+    "env_id": "StackCube-v1",
+    "max_episode_steps": 100,
+    "env_kwargs": {
+      "reward_mode": "dense",
+      "obs_mode": "state",
+      "control_mode": "pd_ee_delta_pos"
+    }
+  },
+  "episodes": [
+    {
+      "episode_id": 0,
+      "episode_seed": 1791095845,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 12,
+      "info": {
+        "elapsed_steps": 12,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 1,
+      "episode_seed": 4282876139,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 9,
+      "info": {
+        "elapsed_steps": 9,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 2,
+      "episode_seed": 3093770124,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 12,
+      "info": {
+        "elapsed_steps": 12,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 3,
+      "episode_seed": 4005303368,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 10,
+      "info": {
+        "elapsed_steps": 10,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 4,
+      "episode_seed": 491263,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 11,
+      "info": {
+        "elapsed_steps": 11,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 5,
+      "episode_seed": 550290313,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 9,
+      "info": {
+        "elapsed_steps": 9,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 6,
+      "episode_seed": 1298508491,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 11,
+      "info": {
+        "elapsed_steps": 11,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 7,
+      "episode_seed": 4290846341,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 11,
+      "info": {
+        "elapsed_steps": 11,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 8,
+      "episode_seed": 630311759,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 13,
+      "info": {
+        "elapsed_steps": 13,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 9,
+      "episode_seed": 1013994432,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 11,
+      "info": {
+        "elapsed_steps": 11,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 10,
+      "episode_seed": 396591248,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 11,
+      "info": {
+        "elapsed_steps": 11,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 11,
+      "episode_seed": 1703301249,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 18,
+      "info": {
+        "elapsed_steps": 18,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 12,
+      "episode_seed": 799981516,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 12,
+      "info": {
+        "elapsed_steps": 12,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 13,
+      "episode_seed": 1666063943,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 17,
+      "info": {
+        "elapsed_steps": 17,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 14,
+      "episode_seed": 1484172013,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 16,
+      "info": {
+        "elapsed_steps": 16,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 15,
+      "episode_seed": 1704103302,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 11,
+      "info": {
+        "elapsed_steps": 11,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 16,
+      "episode_seed": 4018109721,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 13,
+      "info": {
+        "elapsed_steps": 13,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 17,
+      "episode_seed": 2314200242,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 10,
+      "info": {
+        "elapsed_steps": 10,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 18,
+      "episode_seed": 3634877716,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 11,
+      "info": {
+        "elapsed_steps": 11,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    },
+    {
+      "episode_id": 19,
+      "episode_seed": 1800426750,
+      "reset_kwargs": {
+        "reconfigure": true
+      },
+      "control_mode": "pd_ee_delta_pos",
+      "elapsed_steps": 11,
+      "info": {
+        "elapsed_steps": 11,
+        "is_cubaA_grasped": false,
+        "is_cubeA_on_cubeB": true,
+        "is_cubeA_static": true,
+        "success": true
+      }
+    }
+  ]
+}
