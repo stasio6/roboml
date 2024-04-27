@@ -71,6 +71,8 @@ def parse_args():
             help="Entropy regularization coefficient.")
     parser.add_argument("--autotune", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
         help="automatic tuning of the entropy coefficient")
+    parser.add_argument("--ep-len-reward-weight", type=float, default=0.5,
+            help="TODO")
     
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
@@ -129,15 +131,16 @@ def to_tensor(x, device):
 
 # ALGO LOGIC: initialize agent here:
 class SoftQNetwork(nn.Module):
-    def __init__(self, env):
+    def __init__(self, env, useLayerNorm=True):
         super().__init__()
+        layerNorm = nn.LayerNorm(256) if useLayerNorm else nn.Identity()
         self.net = nn.Sequential(
             nn.Linear(np.array(env.single_observation_space.shape).prod() + np.prod(env.single_action_space.shape), 256),
-            nn.ReLU(),
+            layerNorm, nn.ReLU(),
             nn.Linear(256, 256),
-            nn.ReLU(),
+            layerNorm, nn.ReLU(),
             nn.Linear(256, 256),
-            nn.ReLU(),
+            layerNorm, nn.ReLU(),
             nn.Linear(256, 1),
         )
 
@@ -203,7 +206,10 @@ class Actor(nn.Module):
         return super().to(device)
     
 class SmallDemoDataset(object):
-    def __init__(self, envs, data_path, obs_space, device, buffer_size, num_envs, device_cuda, num_traj=None):
+    def __init__(self, envs, data_path, obs_space, device, buffer_size, num_envs, device_cuda, modif, max_env_len, num_traj=None):
+        self.buffor = [[] for i in range(num_envs)]
+        self.modif = modif
+        self.max_env_len = max_env_len
         if data_path[-4:] == '.pkl':
             raise NotImplementedError()
         else:
@@ -214,17 +220,25 @@ class SmallDemoDataset(object):
             obs_buffer_next = []
             
             obs_cnt = 0
-            for obs_traj in demo_dataset['observations']:
+            for i in range(len(demo_dataset['observations'])):
+                obs_traj = demo_dataset['observations'][i]
                 len_traj = obs_traj.shape[0]
                 obs_cnt+=(len_traj-1)
                 
-                for i in range(len_traj-1):
-                    _obs = obs_traj[i:i+1,:]
+                for j in range(len_traj-1):
+                    _obs = obs_traj[j:j+1,:]
                     _obs = torch.tensor(_obs).to(device)
-                    _obs_next = obs_traj[i+1:i+2,:]
+                    _obs_next = obs_traj[j+1:j+2,:]
                     _obs_next = torch.tensor(_obs_next).to(device)
                     obs_buffer.append(_obs)
                     obs_buffer_next.append(_obs_next)
+                
+                if demo_dataset['rewards'][i][-1] > 0.1:
+                    env_len = len(demo_dataset['rewards'][i])
+                    new_reward = 1 - self.modif * env_len / self.max_env_len
+                    # new_reward = demo_dataset['rewards'][i][-1]
+                    for j in range(env_len):
+                        demo_dataset['rewards'][i][j] = new_reward
                     
             self.device = device
             
@@ -246,15 +260,34 @@ class SmallDemoDataset(object):
                 envs.single_observation_space,
                 envs.single_action_space,
                 device_cuda,
-                n_envs=args.num_envs,
+                n_envs=num_envs,
                 handle_timeout_termination=True,
             )
             
     def __len__(self):
         return self.demo_size
     
+    def buffor_add(self, env_id, val):
+        self.buffor[env_id].append(val)
+
+        if val['dones']:
+            env_len = val['infos']['elapsed_steps']
+            if val['infos']['success']:
+                new_reward = 1 - self.modif * env_len / self.max_env_len
+                # new_reward = val['rewards']
+                for j in range(env_len):
+                    self.buffor[env_id][-j-1]['rewards'] = new_reward
+        
+    
     def add(self, obs, next_obs, actions, rewards, dones, infos):
-        self.collect_data.add(obs, next_obs, actions, rewards, dones, infos)
+        for i in range(self.num_envs):
+            self.buffor_add(i, {'obs':obs[i], 'next_obs':next_obs[i], 'actions':actions[i], 'rewards':rewards[i], 'dones':dones[i], 'infos':infos[i]})
+        if len(self.buffor[0]) > 450:
+            self.buffor = np.array(self.buffor)
+            for i in range(200):
+                self.collect_data.add(np.array([v['obs'] for v in self.buffor[:,i]]), np.array([v['next_obs'] for v in self.buffor[:,i]]), np.array([v['actions'] for v in self.buffor[:,i]]), \
+                                      np.array([v['rewards'] for v in self.buffor[:,i]]), np.array([v['dones'] for v in self.buffor[:,i]]), np.array([v['infos'] for v in self.buffor[:,i]]),)
+            self.buffor = [list(l[200:]) for l in self.buffor]
     
     def sample(self, batch_size, device):
         n_samples_demo = int(batch_size/2)
@@ -271,6 +304,8 @@ class SmallDemoDataset(object):
         demo_batch = to_tensor(demo_batch, device)
         
         collect_batch = self.collect_data.sample(n_samples_collect)
+        # print("collect",collect_batch.rewards[0])
+        # print("demo",demo_batch["rewards"][0])
         
         batch = dict(
             observations=torch.cat([demo_batch['observations'], collect_batch.observations], dim=0).float(),
@@ -395,7 +430,7 @@ if __name__ == "__main__":
     #     handle_timeout_termination=True,
     # )
     
-    dataset = SmallDemoDataset(envs, args.demo_path, envs.single_observation_space, 'cpu', args.buffer_size, args.num_envs, device, num_traj=args.num_demo_traj)
+    dataset = SmallDemoDataset(envs, args.demo_path, envs.single_observation_space, 'cpu', args.buffer_size, args.num_envs, device, args.ep_len_reward_weight, make_env(args.env_id, 0)().spec.max_episode_steps, num_traj=args.num_demo_traj)
 
     # TRY NOT TO MODIFY: start the game
     start_time = time.time()
