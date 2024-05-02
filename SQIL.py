@@ -1,4 +1,4 @@
-ALGO_NAME = 'SACfd-ms2-new'
+ALGO_NAME = 'SQIL'
 
 import os
 import argparse
@@ -72,7 +72,9 @@ def parse_args():
     parser.add_argument("--autotune", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
         help="automatic tuning of the entropy coefficient")
     parser.add_argument("--ep-len-reward-weight", type=float, default=0.5,
-            help="TODO")
+            help="How much does trajectory length impact the actual reward")
+    parser.add_argument("--modify-new-traj-rewards", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
+        help="automatic tuning of the entropy coefficient")
     
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
@@ -280,6 +282,10 @@ class SmallDemoDataset(object):
         
     
     def add(self, obs, next_obs, actions, rewards, dones, infos):
+        if not args.modify_new_traj_rewards:
+            self.collect_data.add(obs, next_obs, actions, rewards, dones, infos)
+            return
+
         for i in range(self.num_envs):
             self.buffor_add(i, {'obs':obs[i], 'next_obs':next_obs[i], 'actions':actions[i], 'rewards':rewards[i], 'dones':dones[i], 'infos':infos[i]})
         if len(self.buffor[0]) > 450:
