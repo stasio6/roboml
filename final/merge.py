@@ -27,6 +27,7 @@ for file in [file1, file2]:
         num += 1
 print("Num total:", num)
 
+# Not merged due to corruption
 # Peg 20
 # Pick 200
 # Faucet 200
