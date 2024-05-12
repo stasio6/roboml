@@ -17,9 +17,9 @@ num = 0
 for file in [file1, file2]:
     print(file)
     for traj_id in file:
-        print(traj_id)
+        # print(traj_id)
         arr_data = dict(file[traj_id])
-        print(arr_data)
+        # print(arr_data)
         n_traj_id = "traj_" + str(num)
         gr = output.create_group(n_traj_id)
         for key in arr_data:
