@@ -445,12 +445,14 @@ if __name__ == "__main__":
     num_updates_per_training = int(args.training_freq // args.num_steps_per_update)
     disc_rew_sum = np.zeros(args.num_envs)
     result = defaultdict(list)
+    collect_time = training_time = disc_time = eval_time = 0
 
     while global_step < args.total_timesteps:
 
         #############################################
         # Interact with environments
         #############################################
+        tic = time.time()
         for local_step in range(args.training_freq // args.num_envs):
             global_step += 1 * args.num_envs
 
@@ -503,6 +505,7 @@ if __name__ == "__main__":
 
             # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
             obs = next_obs
+        collect_time += time.time() - tic
 
         # ALGO LOGIC: training.
         if global_step < args.learning_starts:
@@ -516,6 +519,7 @@ if __name__ == "__main__":
             #############################################
             # Train discriminator
             #############################################
+            tic = time.time()
             if global_update % args.disc_frequency == 0:
                 success_data = sb.sample(args.batch_size)
                 fail_data = fb.sample(args.batch_size)
@@ -539,11 +543,13 @@ if __name__ == "__main__":
                 disc_acc_agent = (~pred & ~disc_labels.bool()).sum().item() / args.batch_size
 
                 # print(f'Disc Acc: demo {disc_acc_demo*100:.2f}%, agent {disc_acc_agent*100:.2f}%')
+            disc_time += time.time() - tic
 
             #############################################
             # Train agent
             #############################################
             # compute reward by discriminator
+            tic = time.time()
             disc_rewards = disc.get_reward(data.observations, data.actions, mode=args.reward_mode)
 
             # update the value networks
@@ -596,6 +602,7 @@ if __name__ == "__main__":
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
                 for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
+            training_time += time.time() - tic
 
         # Log training-related data
         if (global_step - args.training_freq) // args.log_freq < global_step // args.log_freq:
@@ -615,16 +622,26 @@ if __name__ == "__main__":
             writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
             writer.add_scalar("losses/alpha", alpha, global_step)
             # print("SPS:", int(global_step / (time.time() - start_time)))
-            writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+            tot_time = time.time() - start_time
+            writer.add_scalar("charts/SPS", int(global_step / (tot_time)), global_step)
+            writer.add_scalar("charts/collect_time", collect_time / tot_time, global_step)
+            writer.add_scalar("charts/training_time", training_time / tot_time, global_step)
+            writer.add_scalar("charts/disc_time", disc_time / tot_time, global_step)
+            writer.add_scalar("charts/eval_time", eval_time / tot_time, global_step)
+            writer.add_scalar("charts/collect_SPS", int(global_step / collect_time), global_step)
+            writer.add_scalar("charts/training_SPS", int(global_step / training_time), global_step)
+            writer.add_scalar("charts/disc_SPS", int(global_step / disc_time), global_step)
             writer.add_scalar("charts/env_steps", global_env_step, global_step)
             if args.autotune:
                 writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
 
         # Evaluation
+        tic = time.time()
         if (global_step - args.training_freq) // args.eval_freq < global_step // args.eval_freq:
             result = evaluate(args.num_eval_episodes, actor, eval_envs, device)
             for k, v in result.items():
                 writer.add_scalar(f"eval/{k}", np.mean(v), global_step)
+        eval_time += time.time() - tic
 
         # Checkpoint
         if args.save_freq and ( global_step >= args.total_timesteps or \
