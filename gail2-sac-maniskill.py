@@ -446,6 +446,7 @@ if __name__ == "__main__":
     disc_rew_sum = np.zeros(args.num_envs)
     result = defaultdict(list)
     collect_time = training_time = disc_time = eval_time = 0
+    value_network_time = policy_network_time = 0
 
     while global_step < args.total_timesteps:
 
@@ -550,7 +551,7 @@ if __name__ == "__main__":
             #############################################
             # compute reward by discriminator
             disc_rewards = disc.get_reward(data.observations, data.actions, mode=args.reward_mode)
-            tic = time.time()
+            tic = loctic = time.time()
 
             # update the value networks
             with torch.no_grad():
@@ -573,6 +574,9 @@ if __name__ == "__main__":
             q_optimizer.zero_grad()
             qf_loss.backward()
             q_optimizer.step()
+
+            value_network_time += time.time() - loctic
+            loctic = time.time()
 
             # update the policy network
             if global_update % args.policy_frequency == 0:  # TD 3 Delayed update support
@@ -603,6 +607,7 @@ if __name__ == "__main__":
                 for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
             training_time += time.time() - tic
+            policy_network_time += time.time() - loctic
 
         # Log training-related data
         if (global_step - args.training_freq) // args.log_freq < global_step // args.log_freq:
@@ -631,6 +636,10 @@ if __name__ == "__main__":
             writer.add_scalar("charts/collect_SPS", int(global_step / collect_time), global_step)
             writer.add_scalar("charts/training_SPS", int(global_step / training_time), global_step)
             writer.add_scalar("charts/disc_SPS", int(global_step / disc_time), global_step)
+            writer.add_scalar("charts/value_network_time", value_network_time / tot_time, global_step)
+            writer.add_scalar("charts/value_network_SPS", int(global_step / value_network_time), global_step)
+            writer.add_scalar("charts/policy_network_time", policy_network_time / tot_time, global_step)
+            writer.add_scalar("charts/policy_network_SPS", int(global_step / policy_network_time), global_step)
             writer.add_scalar("charts/env_steps", global_env_step, global_step)
             if args.autotune:
                 writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
