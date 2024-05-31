@@ -549,8 +549,8 @@ if __name__ == "__main__":
             # Train agent
             #############################################
             # compute reward by discriminator
-            tic = time.time()
             disc_rewards = disc.get_reward(data.observations, data.actions, mode=args.reward_mode)
+            tic = time.time()
 
             # update the value networks
             with torch.no_grad():
