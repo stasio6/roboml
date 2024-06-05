@@ -79,8 +79,8 @@ def parse_args():
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=100_000)
     parser.add_argument("--num-envs", type=int, default=4)
-    parser.add_argument("--num-eval-episodes", type=int, default=200)
-    parser.add_argument("--num-eval-envs", type=int, default=4)
+    parser.add_argument("--num-eval-episodes", type=int, default=240)
+    parser.add_argument("--num-eval-envs", type=int, default=16)
     parser.add_argument("--gen-more-thres", type=int, default=100)
     parser.add_argument("--num-traj-gen-more", type=int, default=1000)
     parser.add_argument("--sync-venv", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
@@ -316,6 +316,42 @@ def evaluate(n, agent, eval_envs, device):
     return result
 
 
+def extend_dataset(dataset, actor, envs, num_envs, traj_to_generate):
+    generated = 0
+    buffers = [[] for _ in range(num_envs)]
+    add_actions = add_obs = add_next_obs = add_rewards = []
+    result = defaultdict(list)
+    obs = envs.reset()
+    while generated < traj_to_generate:
+        actions, _, _ = actor.get_action(torch.Tensor(obs).to(device))
+        actions = actions.detach().cpu().numpy()
+
+        next_obs, rewards, dones, infos = envs.step(actions)
+        result = collect_episode_info(infos, result)
+        real_next_obs = next_obs.copy()
+
+        for idx, d in enumerate(dones):
+            if d:
+                real_next_obs[idx] = infos[idx]["terminal_observation"]
+
+        for e in range(num_envs):
+            buffers[e].append((obs[e], real_next_obs[e], actions[e], rewards[e]))
+            if dones[e]:
+                if infos[e]['success']:
+                    generated += 1
+                    for (o, no, a, r) in buffers[e]:
+                        add_obs.append(o)
+                        add_next_obs.append(no)
+                        add_actions.append(a)
+                        add_rewards.append(r)
+                buffers[e] = []
+
+    dataset.demo_batch['observations'] = torch.cat([dataset.demo_batch['observations'], torch.tensor(add_obs)], dim=0).float()
+    dataset.demo_batch['next_observations'] = torch.cat([dataset.demo_batch['next_observations'], torch.tensor(add_next_obs)], dim=0).float()
+    dataset.demo_batch['actions'] = torch.cat([dataset.demo_batch['actions'], torch.tensor(add_actions)], dim=0).float()
+    dataset.demo_batch['rewards'] = torch.cat([dataset.demo_batch['rewards'], torch.tensor(add_rewards)], dim=0).float()
+    return dataset
+
 if __name__ == "__main__":
     args = parse_args()
 
@@ -406,6 +442,7 @@ if __name__ == "__main__":
     # )
     
     dataset = SmallDemoDataset(envs, args.demo_path, envs.single_observation_space, 'cpu', args.buffer_size, args.num_envs, device, args.symmetric_sampling, num_traj=args.num_demo_traj)
+    did_extend_dataset = False
 
     # TRY NOT TO MODIFY: start the game
     start_time = time.time()
@@ -541,6 +578,9 @@ if __name__ == "__main__":
             eval_time += time.time() - tic
             for k, v in result.items():
                 writer.add_scalar(f"eval/{k}", np.mean(v), global_step)
+            if np.mean(result['success']) > args.gen_more_thres and not did_extend_dataset:
+                dataset = extend_dataset(dataset, actor, eval_envs, args.num_eval_envs, args.num_traj_gen_more)
+                did_extend_dataset = True
         
         # Checkpoint
         if args.save_freq and ( global_step >= args.total_timesteps or \
