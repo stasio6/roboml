@@ -348,10 +348,10 @@ def extend_dataset(dataset, actor, envs, num_envs, traj_to_generate, device):
                 buffers[e] = []
         obs = next_obs
 
-    dataset.demo_batch['observations'] = torch.cat([dataset.demo_batch['observations'], torch.tensor(add_obs)], dim=0).float()
-    dataset.demo_batch['next_observations'] = torch.cat([dataset.demo_batch['next_observations'], torch.tensor(add_next_obs)], dim=0).float()
-    dataset.demo_batch['actions'] = torch.cat([dataset.demo_batch['actions'], torch.tensor(add_actions)], dim=0).float()
-    dataset.demo_batch['rewards'] = torch.cat([dataset.demo_batch['rewards'], torch.tensor(add_rewards)], dim=0).float()
+    dataset.demo_data['observations'] = torch.cat([dataset.demo_data['observations'], torch.tensor(add_obs)], dim=0).float()
+    dataset.demo_data['next_observations'] = torch.cat([dataset.demo_data['next_observations'], torch.tensor(add_next_obs)], dim=0).float()
+    dataset.demo_data['actions'] = torch.cat([dataset.demo_data['actions'], torch.tensor(add_actions)], dim=0).float()
+    dataset.demo_data['rewards'] = torch.cat([dataset.demo_data['rewards'], torch.tensor(add_rewards)], dim=0).float()
     return dataset
 
 if __name__ == "__main__":
