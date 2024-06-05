@@ -335,7 +335,7 @@ def extend_dataset(dataset, actor, envs, num_envs, traj_to_generate):
         for e in range(num_envs):
             buffers[e].append((obs[e], real_next_obs[e], actions[e], rewards[e]))
             if dones[e]:
-                print(infos[e])
+                # print(infos[e])
                 if infos[e]['success']:
                     generated += 1
                     print("Success")
@@ -578,6 +578,7 @@ if __name__ == "__main__":
             eval_time += time.time() - tic
             for k, v in result.items():
                 writer.add_scalar(f"eval/{k}", np.mean(v), global_step)
+            print("Success", np.mean(result['success']), result['success'])
             if np.mean(result['success']) > args.gen_more_thres and not did_extend_dataset:
                 dataset = extend_dataset(dataset, actor, eval_envs, args.num_eval_envs, args.num_traj_gen_more)
                 did_extend_dataset = True
