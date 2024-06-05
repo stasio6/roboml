@@ -320,14 +320,12 @@ def extend_dataset(dataset, actor, envs, num_envs, traj_to_generate):
     generated = 0
     buffers = [[] for _ in range(num_envs)]
     add_actions = add_obs = add_next_obs = add_rewards = []
-    result = defaultdict(list)
     obs = envs.reset()
     while generated < traj_to_generate:
         actions, _, _ = actor.get_action(torch.Tensor(obs).to(device))
         actions = actions.detach().cpu().numpy()
 
         next_obs, rewards, dones, infos = envs.step(actions)
-        result = collect_episode_info(infos, result)
         real_next_obs = next_obs.copy()
 
         for idx, d in enumerate(dones):
@@ -337,8 +335,10 @@ def extend_dataset(dataset, actor, envs, num_envs, traj_to_generate):
         for e in range(num_envs):
             buffers[e].append((obs[e], real_next_obs[e], actions[e], rewards[e]))
             if dones[e]:
+                print(infos[e])
                 if infos[e]['success']:
                     generated += 1
+                    print("Success")
                     for (o, no, a, r) in buffers[e]:
                         add_obs.append(o)
                         add_next_obs.append(no)
