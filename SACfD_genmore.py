@@ -81,7 +81,7 @@ def parse_args():
     parser.add_argument("--num-envs", type=int, default=4)
     parser.add_argument("--num-eval-episodes", type=int, default=200)
     parser.add_argument("--num-eval-envs", type=int, default=4)
-    parser.add_argument("--gen-more-thres", type=int, default=100)
+    parser.add_argument("--gen-more-thres", type=float, default=1.1) # Default is never
     parser.add_argument("--num-traj-gen-more", type=int, default=1000)
     parser.add_argument("--sync-venv", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True)
     parser.add_argument("--num-steps-per-update", type=float, default=2)
