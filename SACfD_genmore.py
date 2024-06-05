@@ -332,10 +332,11 @@ def extend_dataset(dataset, actor, envs, num_envs, traj_to_generate):
             if d:
                 real_next_obs[idx] = infos[idx]["terminal_observation"]
 
+        print(infos)
         for e in range(num_envs):
             buffers[e].append((obs[e], real_next_obs[e], actions[e], rewards[e]))
             if dones[e]:
-                # print(infos[e])
+                print(infos[e])
                 if infos[e]['success']:
                     generated += 1
                     print("Success")
@@ -576,11 +577,14 @@ if __name__ == "__main__":
             tic = time.time()
             result = evaluate(args.num_eval_episodes, actor, eval_envs, device)
             eval_time += time.time() - tic
+            sr = 0
             for k, v in result.items():
                 writer.add_scalar(f"eval/{k}", np.mean(v), global_step)
                 print(f"eval/{k}", np.mean(v), global_step)
-            # print("Success", np.mean(result['success']), result['success'])
-            if False and np.mean(result['success']) > args.gen_more_thres and not did_extend_dataset:
+                if k == 'success':
+                    sr = np.mean(v)
+            print("Success rate:", sr)
+            if sr > args.gen_more_thres and not did_extend_dataset:
                 dataset = extend_dataset(dataset, actor, eval_envs, args.num_eval_envs, args.num_traj_gen_more)
                 did_extend_dataset = True
         
