@@ -319,7 +319,10 @@ def evaluate(n, agent, eval_envs, device):
 def extend_dataset(dataset, actor, envs, num_envs, traj_to_generate, device):
     generated = 0
     buffers = [[] for _ in range(num_envs)]
-    add_actions = add_obs = add_next_obs = add_rewards = []
+    add_actions = []
+    add_obs = []
+    add_next_obs = []
+    add_rewards = []
     obs = envs.reset()
     while generated < traj_to_generate:
         actions = actor.get_eval_action(torch.Tensor(obs).to(device))
@@ -340,7 +343,7 @@ def extend_dataset(dataset, actor, envs, num_envs, traj_to_generate, device):
                 if infos[e]['success']:
                     generated += 1
                     print("Success")
-                    for (o, no, a, r) in buffers[e]:
+                    for o, no, a, r in buffers[e]:
                         add_obs.append(o)
                         add_next_obs.append(no)
                         add_actions.append(a)
@@ -348,10 +351,10 @@ def extend_dataset(dataset, actor, envs, num_envs, traj_to_generate, device):
                 buffers[e] = []
         obs = next_obs
 
-    dataset.demo_data['observations'] = torch.cat([dataset.demo_data['observations'], torch.tensor(add_obs)], dim=0).float()
-    dataset.demo_data['next_observations'] = torch.cat([dataset.demo_data['next_observations'], torch.tensor(add_next_obs)], dim=0).float()
-    dataset.demo_data['actions'] = torch.cat([dataset.demo_data['actions'], torch.tensor(add_actions)], dim=0).float()
-    dataset.demo_data['rewards'] = torch.cat([dataset.demo_data['rewards'], torch.tensor(add_rewards)], dim=0).float()
+    dataset.demo_data['observations'] = torch.cat([dataset.demo_data['observations'], torch.tensor(add_obs)], dim=0).float().to(device)
+    dataset.demo_data['next_observations'] = torch.cat([dataset.demo_data['next_observations'], torch.tensor(add_next_obs)], dim=0).float().to(device)
+    dataset.demo_data['actions'] = torch.cat([dataset.demo_data['actions'], torch.tensor(add_actions)], dim=0).float().to(device)
+    dataset.demo_data['rewards'] = torch.cat([dataset.demo_data['rewards'], torch.tensor(add_rewards)], dim=0).float().to(device)
     return dataset
 
 if __name__ == "__main__":
