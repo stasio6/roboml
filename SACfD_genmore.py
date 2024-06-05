@@ -316,13 +316,13 @@ def evaluate(n, agent, eval_envs, device):
     return result
 
 
-def extend_dataset(dataset, actor, envs, num_envs, traj_to_generate):
+def extend_dataset(dataset, actor, envs, num_envs, traj_to_generate, device):
     generated = 0
     buffers = [[] for _ in range(num_envs)]
     add_actions = add_obs = add_next_obs = add_rewards = []
     obs = envs.reset()
     while generated < traj_to_generate:
-        actions, _, _ = actor.get_action(torch.Tensor(obs).to(device))
+        actions = actor.get_eval_action(torch.Tensor(obs).to(device))
         actions = actions.detach().cpu().numpy()
 
         next_obs, rewards, dones, infos = envs.step(actions)
@@ -332,11 +332,11 @@ def extend_dataset(dataset, actor, envs, num_envs, traj_to_generate):
             if d:
                 real_next_obs[idx] = infos[idx]["terminal_observation"]
 
-        print(infos)
+        # print(infos)
         for e in range(num_envs):
             buffers[e].append((obs[e], real_next_obs[e], actions[e], rewards[e]))
             if dones[e]:
-                print(infos[e])
+                # print(infos[e])
                 if infos[e]['success']:
                     generated += 1
                     print("Success")
@@ -346,6 +346,7 @@ def extend_dataset(dataset, actor, envs, num_envs, traj_to_generate):
                         add_actions.append(a)
                         add_rewards.append(r)
                 buffers[e] = []
+        obs = next_obs
 
     dataset.demo_batch['observations'] = torch.cat([dataset.demo_batch['observations'], torch.tensor(add_obs)], dim=0).float()
     dataset.demo_batch['next_observations'] = torch.cat([dataset.demo_batch['next_observations'], torch.tensor(add_next_obs)], dim=0).float()
@@ -585,7 +586,7 @@ if __name__ == "__main__":
                     sr = np.mean(v)
             print("Success rate:", sr)
             if sr > args.gen_more_thres and not did_extend_dataset:
-                dataset = extend_dataset(dataset, actor, eval_envs, args.num_eval_envs, args.num_traj_gen_more)
+                dataset = extend_dataset(dataset, actor, eval_envs, args.num_eval_envs, args.num_traj_gen_more, device)
                 did_extend_dataset = True
         
         # Checkpoint
