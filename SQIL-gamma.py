@@ -75,6 +75,8 @@ def parse_args():
             help="How much does trajectory length impact the actual reward")
     parser.add_argument("--modify-new-traj-rewards", type=lambda x:bool(strtobool(x)), default=True, nargs="?", const=True,
         help="automatic tuning of the entropy coefficient")
+    parser.add_argument("--sqil-gamma", type=float, default=1, nargs="?", const=True,
+        help="reward discount in sqil part")
     
     parser.add_argument("--output-dir", type=str, default='output')
     parser.add_argument("--eval-freq", type=int, default=30_000)
@@ -239,8 +241,10 @@ class SmallDemoDataset(object):
                     env_len = len(demo_dataset['rewards'][i])
                     new_reward = 1 - self.modif * env_len / self.max_env_len
                     # new_reward = demo_dataset['rewards'][i][-1]
-                    for j in range(env_len):
-                        demo_dataset['rewards'][i][j] = new_reward
+                    cur_gamma = 1
+                    for j in reversed(range(env_len)):
+                        demo_dataset['rewards'][i][j] = new_reward * cur_gamma
+                        cur_gamma *= args.sqil_gamma
                     
             self.device = device
             
