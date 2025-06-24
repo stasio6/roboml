@@ -108,6 +108,9 @@ class SmallDemoDataset(Dataset):
             demo_dataset = load_demo_dataset(data_path, num_traj=num_traj)
 
         for k, v in demo_dataset.items():
+            if k == 'observations':
+                fin = [x[:-1] for x in v]
+                v = np.array(np.concatenate(np.array(fin)))
             demo_dataset[k] = torch.Tensor(v).to(device)
         self.size = demo_dataset['actions'].shape[0]
         self.dataset = demo_dataset
