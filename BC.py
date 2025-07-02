@@ -50,7 +50,7 @@ def parse_args():
         help="the id of the environment")
     parser.add_argument("--demo-path", type=str, default='checkpoints/PickSingleYCB-v1/evaluation/PickSingleYCB-v1/PickSingleYCB-v1_trajectories_100.pkl',
         help="the path of demo pkl")
-    parser.add_argument("--num-demo-traj", type=int, default=100)
+    parser.add_argument("--num-demo-traj", type=int, default=None)
     parser.add_argument("--total-iters", type=int, default=100_000,
         help="total timesteps of the experiments")
     parser.add_argument("--lr", type=float, default=3e-4,
